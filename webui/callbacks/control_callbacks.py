@@ -585,7 +585,7 @@ def register_control_callbacks(app):
         amount = dollar_amount if dollar_amount and dollar_amount > 0 else 1000
 
         return _status_panel(
-            "Automated trading enabled",
+            "Order execution enabled",
             f"${amount:.2f} per order through the configured Alpaca account.",
             ["Review account mode", "Uses fractional shares"],
             tone="warning",

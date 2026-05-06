@@ -19,7 +19,7 @@ def create_header():
                 # Center title
                 dbc.Col([
                     html.H1(
-                        "AlpacaTradingAgent - Multi-Agents LLM Financial Trading Framework", 
+                        "AlpacaTradingAgent - Auditable Multi-Agent Trading Research Framework",
                         className="text-center mb-0"
                     )
                 ], width=8, className="d-flex align-items-center justify-content-center"),

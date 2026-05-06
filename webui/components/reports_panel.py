@@ -152,7 +152,7 @@ def create_reports_panel():
                     id="trader-plan-tab-content",
                     children=[
                         dcc.Markdown(
-                            "🧠 **Loading Trader Plan...** \n\nSwing trading strategy and execution plan will appear here.",
+                            "🧠 **Loading Trader Plan...** \n\nResearch plan and proposed execution details will appear here.",
                             mathjax=True,
                             highlight_config={"theme": "dark"},
                             dangerously_allow_html=False,
@@ -184,7 +184,7 @@ def create_reports_panel():
                     id="final-decision-tab-content",
                     children=[
                         dcc.Markdown(
-                            "⚡ **Loading Final Decision...** \n\nFinal trading recommendation and execution details will appear here.",
+                            "⚡ **Loading Final Decision...** \n\nFinal decision, risk review, and audit details will appear here.",
                             mathjax=True,
                             highlight_config={"theme": "dark"},
                             dangerously_allow_html=False,
@@ -228,7 +228,7 @@ def create_reports_panel():
             html.Div([
                 html.H4([
                     html.I(className="fas fa-chart-line me-2"),
-                    "Agent Reports & Analysis"
+                    "Agent Reports & Audit Trail"
                 ], className="mb-3 report-title"),
                 html.Hr(className="report-divider"),
             ]),

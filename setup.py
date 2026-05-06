@@ -7,7 +7,7 @@ from setuptools import setup, find_namespace_packages
 setup(
     name="tradingagents",
     version="0.1.0",
-    description="Multi-Agents LLM Financial Trading Framework",
+    description="Auditable multi-agent trading research framework for paper trading, strategy testing, and risk-controlled execution",
     author="TradingAgents Team",
     author_email="yijia.xiao@cs.ucla.edu",
     url="https://github.com/TauricResearch",

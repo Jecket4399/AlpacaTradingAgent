@@ -411,5 +411,5 @@ def start_analysis(
 
     # Update the status message with more details
     trading_mode = "Trading Mode (LONG/NEUTRAL/SHORT)" if allow_shorts else "Investment Mode (BUY/HOLD/SELL)"
-    trade_text = f" with ${getattr(app_state, 'trade_amount', 1000)} auto-trading" if getattr(app_state, 'trade_enabled', False) else ""
+    trade_text = f" with ${getattr(app_state, 'trade_amount', 1000)} optional order execution" if getattr(app_state, 'trade_enabled', False) else ""
     return f"Real-time analysis started for {ticker} with {len(selected_analysts)} analysts in {trading_mode}{trade_text} using parallel execution and current market data. Status table will update automatically."

@@ -419,7 +419,7 @@ def _schedule_and_trading():
                     html.Div(
                         dbc.Switch(
                             id="market-hour-enabled",
-                            label="Trade at market hour",
+                            label="Run at market hour",
                             value=False,
                             className="config-switch",
                         ),
@@ -446,7 +446,7 @@ def _schedule_and_trading():
                     html.Div(
                         dbc.Switch(
                             id="trade-after-analyze",
-                            label="Trade after analyze",
+                            label="Place order after analysis",
                             value=False,
                             className="config-switch",
                         ),
@@ -601,7 +601,7 @@ def create_config_panel():
                         html.Div(
                             [
                                 html.H4("Analysis Configuration", className="config-title"),
-                                html.Div("Realtime multi-agent analysis", className="config-subtitle"),
+                                html.Div("Auditable multi-agent research", className="config-subtitle"),
                             ]
                         ),
                         html.Div(
@@ -623,7 +623,7 @@ def create_config_panel():
                         ),
                         dbc.AccordionItem(
                             _schedule_and_trading(),
-                            title=_accordion_title("fa-calendar-check", "Automation", "Schedule and orders"),
+                            title=_accordion_title("fa-calendar-check", "Execution", "Schedule and order controls"),
                             item_id="automation",
                         ),
                         dbc.AccordionItem(

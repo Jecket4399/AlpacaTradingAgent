@@ -1,6 +1,6 @@
-# TradingAgents Web UI
+# AlpacaTradingAgent Web UI
 
-This directory contains the web-based user interface for the TradingAgents framework, built with Dash and Flask.
+This directory contains the Dash and Flask web interface for AlpacaTradingAgent, an auditable multi-agent trading research framework for paper trading, strategy testing, and risk-controlled Alpaca execution.
 
 ## Structure
 
@@ -38,6 +38,8 @@ run_app(port=7860, debug=True)
 - Detailed analysis reports in a tabbed interface
 - Configurable analysis parameters (ticker, date, analysts, LLMs)
 - Parallel analyst execution for faster analysis with API rate limiting
+- Prompt and tool-output inspection for debugging and audit review
+- Alpaca paper-trading-first account controls, with optional order execution when explicitly enabled
 - Dark mode UI optimized for financial data visualization
 
 ## Dependencies

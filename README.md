@@ -1,26 +1,28 @@
-# AlpacaTradingAgent: Enhanced Multi-Agent Alpaca Trading Framework
+# AlpacaTradingAgent: Auditable Multi-Agent Trading Research Framework
 
-> 🚀 **AlpacaTradingAgent** - An independent enhanced version built upon the original TradingAgents framework, specifically designed for Alpaca users who want to test or use AI agents to trade on their Alpaca accounts.
+> **AlpacaTradingAgent** is an auditable multi-agent trading research framework for paper trading, strategy testing, and risk-controlled execution through Alpaca.
 >
-> This project is an independent upgrade inspired by the original [TradingAgents](https://github.com/TauricResearch/TradingAgents) framework by Tauric Research, extending it with real-time Alpaca integration, crypto support, automated trading capabilities, and an enhanced web interface.
+> It is built for developers, beginner quants, AI engineers, and fintech builders who want to inspect LLM-generated market research, run the system locally, modify strategy prompts, and keep a traceable record of decisions before any live execution.
+>
+> This project is an independent upgrade inspired by the original [TradingAgents](https://github.com/TauricResearch/TradingAgents) framework by Tauric Research, extending it with Alpaca integration, crypto support, paper-trading workflows, risk controls, and an enhanced web interface.
 > 
-> **Disclaimer**: This project is provided solely for educational and research purposes. It is not financial, investment, or trading advice. Trading involves risk, and users should conduct their own due diligence before making any trading decisions.
+> **Risk and scope**: This project is provided solely for educational and research purposes. It makes no profit claims and is not financial, investment, or trading advice. Paper trading should be used first. Live trading is optional, requires explicit configuration, and carries real financial risk.
 
 <div align="center">
 
-🚀 [Enhanced Features](#enhanced-features) | ⚡ [Installation & Setup](#installation-and-setup) | 📦 [Package Usage](#alpacatradingagent-package) | 🌐 [Web Interface](#web-ui-usage) | 📖 [Complete Guide](#complete-guide) | 🤝 [Contributing](#contributing) | 📄 [Citation](#citation)
+🚀 [System Capabilities](#system-capabilities) | ⚡ [Installation & Setup](#installation-and-setup) | 📦 [Package Usage](#alpacatradingagent-package) | 🌐 [Web Interface](#web-ui-usage) | 📖 [Complete Guide](#complete-guide) | 🤝 [Contributing](#contributing) | 📄 [Citation](#citation)
 
 </div>
 
-## Enhanced Features
+## System Capabilities
 
-AlpacaTradingAgent introduces powerful new capabilities specifically designed for Alpaca users:
+AlpacaTradingAgent is designed as a research-first system with transparent outputs, configurable risk boundaries, and optional Alpaca execution:
 
-### 🔄 **Real-Time Alpaca Integration**
-- **Live Trading**: Direct integration with Alpaca API for real-time trading execution
-- **Paper & Live Trading**: Support for both paper trading (testing) and live trading with real money
-- **Margin Trading**: Full support for margin accounts, including short selling capabilities
-- **Portfolio Management**: Real-time portfolio tracking, position monitoring, and order management
+### 🔄 **Alpaca Connectivity, Paper Trading First**
+- **Paper Trading First**: Use Alpaca paper accounts for local demos, strategy testing, and workflow validation before considering live execution
+- **Optional Live Execution**: Route approved decisions to Alpaca only when live mode is explicitly configured
+- **Portfolio Observability**: Track account value, open positions, recent orders, and liquidation actions from the Web UI
+- **Configurable Exposure**: Support long-only mode by default, with explicit controls for margin accounts and short selling
 
 ### 📈 **Dual Asset Support: Stocks & Crypto**
 - **Multi-Asset Analysis**: Analyze both traditional stocks and cryptocurrencies in a single session
@@ -28,13 +30,14 @@ AlpacaTradingAgent introduces powerful new capabilities specifically designed fo
 - **Mixed Portfolios**: Support for mixed symbol inputs like `"NVDA, ETH/USD, AAPL"` for diversified analysis
 - **Dedicated Data Sources**: CoinDesk/CryptoCompare-compatible crypto news and DeFi Llama for fundamental crypto data
 
-### 🤖 **Enhanced Multi-Agent System (5 Agents)**
+### 🤖 **Auditable Multi-Agent Research Pipeline**
 - **Market Analyst**: Evaluates overall market conditions and trends
 - **Social Sentiment Analyst**: Analyzes social media sentiment and public opinion
 - **News Analyst**: Monitors and interprets financial news and events
 - **Fundamental Analyst**: Assesses company financials and intrinsic value
 - **Macro Analyst**: Analyzes macroeconomic indicators and Federal Reserve data
 - **Parallel Execution**: All 5 analysts run simultaneously for faster analysis with configurable delays to prevent API overload
+- **Run Audit Trail**: LLM calls, tool calls, graph-node events, prompts, outputs, and final decisions can be inspected after a run
 
 ### 🧠 **Multi-Provider LLM Runtime**
 - **Default OpenAI GPT-5.4 Path**: Uses `gpt-5.4-nano` for quick agents and `gpt-5.4-mini` for deeper manager/trader agents
@@ -50,11 +53,11 @@ AlpacaTradingAgent introduces powerful new capabilities specifically designed fo
 - **Checkpoint Resume**: Optional per-symbol SQLite checkpoints allow failed LangGraph runs to resume while successful runs clean up automatically
 - **Safe Paths**: Report, cache, checkpoint, and log paths use safe ticker components, including crypto symbols like `BTC/USD -> BTC_USD`
 
-### ⚡ **Automated Trading & Scheduling**
-- **Market Hours Trading**: Automatic execution during market hours
-- **Scheduled Analysis**: Configurable recurring analysis every N hours
-- **Auto-Execution**: Optional automatic trade execution based on agent recommendations
-- **Smart Scheduling**: Respects market hours for different asset classes
+### ⚡ **Risk-Controlled Scheduling & Execution**
+- **Market-Aware Scheduling**: Schedule recurring analysis during market hours
+- **Optional Order Execution**: Keep analysis-only mode by default, or explicitly enable Alpaca order placement after a decision is generated
+- **Position Sizing Controls**: Configure order amount, long-only vs short-enabled behavior, and paper/live account mode
+- **Execution Review Path**: Final actions are preserved as structured outputs so they can be reviewed, logged, and audited before order placement
 
 ### 🌐 **Advanced Web Interface**
 - **Multi-Symbol Dashboard**: Analyze and trade multiple symbols simultaneously
@@ -64,24 +67,25 @@ AlpacaTradingAgent introduces powerful new capabilities specifically designed fo
 - **Chat-Style Debates**: Visualize agent debates as conversation threads
 - **Position Management**: View current positions, recent orders, and liquidate positions directly from UI
 - **Model Configuration**: Choose provider, model, provider-specific parameters, output language, and checkpoint resume from the UI
+- **Prompt and Tool Inspection**: Review captured prompts and tool outputs to understand how a recommendation was produced
 
 ## Complete Guide
 
-For an in-depth, step-by-step walkthrough of using the AlpacaTradingAgent web UI for automated trading, check out the complete guide on Dev.to:
+For an in-depth, step-by-step walkthrough of using the AlpacaTradingAgent web UI, including its automation controls, check out the complete guide on Dev.to:
 
-* **[Complete Guide: Using AlpacaTradingAgent Web UI for Automated Trading](https://dev.to/aarontrng/complete-guide-using-alpacatradingagent-web-ui-for-automated-trading-3k78)**
+* **[Complete Guide: Using AlpacaTradingAgent Web UI](https://dev.to/aarontrng/complete-guide-using-alpacatradingagent-web-ui-for-automated-trading-3k78)**
 
 ## AlpacaTradingAgent Framework
 
-AlpacaTradingAgent is a multi-agent trading framework that mirrors the dynamics of real-world trading firms. By deploying specialized LLM-powered agents working collaboratively, the platform evaluates market conditions across multiple asset classes and executes informed trading decisions through the Alpaca API.
+AlpacaTradingAgent is an auditable multi-agent trading research framework that mirrors the dynamics of real-world trading firms. Specialized LLM-powered agents collaborate to evaluate market conditions across multiple asset classes, produce structured decisions, and optionally route those decisions to Alpaca paper or live accounts when execution is explicitly enabled.
 
 <p align="center">
   <img src="assets\schema.png" style="width: 100%; height: auto;">
 </p>
 
-> AlpacaTradingAgent framework is designed for research and educational purposes. Trading performance may vary based on many factors, including the chosen backbone language models, model temperature, trading periods, the quality of data, and other non-deterministic factors. [It is not intended as financial, investment, or trading advice.](https://tauric.ai/disclaimer/)
+> AlpacaTradingAgent is designed for research and educational purposes. Trading performance may vary based on many factors, including the chosen backbone language models, model temperature, trading periods, data quality, execution settings, and other non-deterministic factors. The project makes no profit guarantees. [It is not intended as financial, investment, or trading advice.](https://tauric.ai/disclaimer/)
 
-Our enhanced framework decomposes complex trading tasks into specialized roles while providing real-time market connectivity and execution capabilities.
+The framework decomposes trading research into specialized roles while preserving the intermediate reasoning, debate, risk review, and final structured decision.
 
 ### Enhanced Analyst Team (5 Agents)
 - **Market Analyst**: Evaluates overall market conditions, sector trends, and market sentiment indicators
@@ -94,10 +98,10 @@ Our enhanced framework decomposes complex trading tasks into specialized roles w
 - Comprises both bullish and bearish researchers who critically assess the insights provided by the Analyst Team. Through structured debates, they balance potential gains against inherent risks, now with enhanced support for both equity and crypto markets.
 
 ### Trader Agent
-- Composes reports from analysts and researchers to make informed trading decisions. Determines timing, magnitude, and direction (long/short) of trades with direct execution through Alpaca API.
+- Composes reports from analysts and researchers into a proposed trading plan. Determines timing, magnitude, and direction (long/short) for review or optional Alpaca execution.
 
 ### Risk Management and Portfolio Manager
-- Continuously evaluates portfolio risk across stocks and crypto assets. Monitors margin requirements, position sizes, and overall portfolio exposure. Provides real-time risk assessment and position management through the Alpaca integration.
+- Evaluates portfolio risk across stocks and crypto assets. Monitors margin requirements, position sizes, and overall portfolio exposure before final decisions are surfaced for review or optional execution.
 
 ## Installation and Setup
 
@@ -116,7 +120,7 @@ pip install -r requirements.txt
 
 ### Required APIs Configuration
 
-For full functionality including real-time trading, you'll need to set up the following API keys:
+For full functionality including market data, paper trading, and optional order execution, you'll need to set up the following API keys:
 
 1. **Copy the sample environment file**:
    ```bash
@@ -126,11 +130,11 @@ For full functionality including real-time trading, you'll need to set up the fo
 2. **Edit the `.env` file** with your API keys:
 
 #### Essential APIs
-- **Alpaca API Keys** (Required for trading):
+- **Alpaca API Keys** (Required for market data and optional order execution):
   - Sign up at [Alpaca Markets](https://app.alpaca.markets/signup)
   - Get your API key and secret from the dashboard
-  - Set `ALPACA_USE_PAPER=True` for paper trading (recommended for testing)
-  - Set `ALPACA_USE_PAPER=False` for live trading with real money
+  - Keep `ALPACA_USE_PAPER=True` for paper trading while testing and demonstrating the system
+  - Set `ALPACA_USE_PAPER=False` only when you intentionally want live trading with real money
 
 - **OpenAI API Key** (Default LLM provider and OpenAI web-search tools):
   - Sign up at [OpenAI Platform](https://platform.openai.com/api-keys)
@@ -174,7 +178,7 @@ Set `LLM_PROVIDER` in `.env`, the CLI, or the WebUI. Supported providers include
 
 3. **Restart the application** after setting up your API keys.
 
-> **Note**: Without valid Alpaca API keys, the application will fall back to demo mode without trading capabilities.
+> **Note**: Without valid Alpaca API keys, the application will fall back to demo mode without market-data or order-execution capabilities.
 
 ### CLI Usage
 
@@ -230,7 +234,7 @@ to the bundled templates.
 
 #### Enhanced Web UI Features
 
-The web interface offers comprehensive trading and analysis capabilities:
+The web interface offers research, audit, and optional execution controls:
 
 **Multi-Asset Analysis Dashboard**
 - Analyze multiple stocks and crypto assets simultaneously
@@ -241,9 +245,9 @@ The web interface offers comprehensive trading and analysis capabilities:
   <img src="assets\config_and_chart.png" style="width: 100%; height: auto;">
 </p>
 
-**Live Trading Integration**
+**Alpaca Account and Execution Controls**
 - View current Alpaca positions and recent orders
-- Execute trades directly from the interface
+- Place orders from the interface when execution is explicitly enabled
 - Liquidate positions with one-click functionality
 - Real-time portfolio value tracking
 
@@ -256,19 +260,20 @@ The web interface offers comprehensive trading and analysis capabilities:
 - Technical indicators and analysis overlays
 - Support for both stock and crypto price data
 
-**Enhanced Reporting Interface**
+**Auditable Reporting Interface**
 - Tabbed navigation for different analysis reports
 - Chat-style conversation view for agent debates
 - Progress table showing analysis status for each symbol
 - Downloadable reports and trade recommendations
+- Captured prompts and tool outputs for debugging and review
 
 <p align="center">
   <img src="assets\reports.png" style="width: 100%; height: auto;">
 </p>
 
-**Automated Trading Controls**
+**Scheduling and Risk Controls**
 - Schedule recurring analysis during market hours
-- Configure auto-execution of trade recommendations
+- Configure optional order execution after a structured decision is generated
 - Set custom analysis intervals (every N hours)
 - Margin trading controls and risk management
 
@@ -281,7 +286,7 @@ The web interface offers comprehensive trading and analysis capabilities:
 
 ### Implementation Details
 
-Built with LangGraph for flexibility and modularity. The enhanced version integrates with multiple financial APIs and supports both paper and live trading through Alpaca. We recommend `gpt-5-nano` for the cheapest testing runs or `gpt-5.4-nano` for a newer low-cost default, as the framework makes numerous API calls across all 5 agents.
+Built with LangGraph for flexibility and modularity. The enhanced version integrates with multiple financial APIs and supports Alpaca paper trading plus optional live execution. We recommend `gpt-5-nano` for the cheapest testing runs or `gpt-5.4-nano` for a newer low-cost default, as the framework makes numerous API calls across all 5 agents.
 
 ### Python Usage
 
@@ -360,13 +365,13 @@ print(decision)
 
 ## Contributing
 
-We welcome contributions from the community! AlpacaTradingAgent is an independent project that builds upon concepts from the original TradingAgents framework, continuously evolving with new features for Alpaca integration and multi-asset support.
+We welcome contributions from the community. AlpacaTradingAgent is an independent project that builds upon concepts from the original TradingAgents framework, continuously evolving as a transparent foundation for Alpaca integration, multi-asset research, paper trading, and risk-controlled execution.
 
 ## Acknowledgments
 
 This project is inspired by and builds upon concepts from the original [TradingAgents](https://github.com/TauricResearch/TradingAgents) framework by Tauric Research. We extend our gratitude to the original authors for their pioneering work in multi-agent financial trading systems.
 
-**AlpacaTradingAgent** is an independent project that focuses specifically on providing Alpaca users with a production-ready trading interface, real-time market connectivity, and expanded asset class support while implementing an enhanced multi-agent architecture.
+**AlpacaTradingAgent** is an independent project that focuses specifically on providing Alpaca users with a research-oriented interface, market connectivity, expanded asset class support, and an auditable multi-agent architecture.
 
 ## Citation
 
