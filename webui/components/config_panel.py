@@ -22,25 +22,6 @@ ANALYSTS = [
 ]
 
 
-def _symbol_option_label(symbol, detail=""):
-    return html.Span(
-        [
-            html.Span(symbol, className="symbol-option-symbol"),
-            html.Span(detail, className="symbol-option-detail") if detail else None,
-        ],
-        className="symbol-option-label",
-    )
-
-
-DEFAULT_SYMBOL_OPTIONS = [
-    {"label": _symbol_option_label("NVDA", " - NVIDIA Corporation | Equity | NASDAQ"), "value": "NVDA"},
-    {"label": _symbol_option_label("AMD", " - Advanced Micro Devices, Inc. | Equity | NASDAQ"), "value": "AMD"},
-    {"label": _symbol_option_label("TSLA", " - Tesla, Inc. | Equity | NASDAQ"), "value": "TSLA"},
-    {"label": _symbol_option_label("BTC/USD", " - Bitcoin / US Dollar | Crypto | Alpaca Crypto"), "value": "BTC/USD"},
-    {"label": _symbol_option_label("ETH/USD", " - Ethereum / US Dollar | Crypto | Alpaca Crypto"), "value": "ETH/USD"},
-]
-
-
 def _accordion_title(icon, title, meta):
     return html.Div(
         [
@@ -319,15 +300,25 @@ def _core_setup():
                 "Symbols",
                 html.Div(
                     [
-                        dcc.Dropdown(
-                            id="ticker-picker",
-                            options=DEFAULT_SYMBOL_OPTIONS,
-                            value=["NVDA", "AMD", "TSLA"],
-                            multi=True,
-                            searchable=True,
-                            clearable=True,
-                            placeholder="Type a stock or crypto symbol...",
-                            className="symbol-search-dropdown",
+                        html.Div(
+                            [
+                                html.Div(
+                                    [
+                                        html.Div(id="symbol-selected-chips", className="symbol-chip-list"),
+                                        dcc.Input(
+                                            id="symbol-query-input",
+                                            type="text",
+                                            value="",
+                                            debounce=False,
+                                            placeholder="Type a symbol...",
+                                            className="symbol-query-input",
+                                        ),
+                                    ],
+                                    className="symbol-combobox",
+                                ),
+                                html.Div(id="symbol-suggestions", className="symbol-suggestions-menu"),
+                            ],
+                            className="symbol-combobox-wrap",
                         ),
                         dcc.Input(
                             id="ticker-input",
@@ -336,6 +327,7 @@ def _core_setup():
                         ),
                         html.Div(id="symbol-search-status", className="symbol-search-status"),
                     ],
+                    className="symbol-picker",
                 ),
                 "tag",
             ),

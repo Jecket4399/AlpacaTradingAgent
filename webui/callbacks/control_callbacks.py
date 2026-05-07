@@ -2,7 +2,7 @@
 Control and configuration callbacks for TradingAgents WebUI
 """
 
-from dash import Input, Output, State, ctx, html
+from dash import ALL, Input, Output, State, ctx, html, no_update
 import dash_bootstrap_components as dbc
 import dash
 import threading
@@ -29,6 +29,69 @@ def _select_options(values):
     return [{"label": value, "value": value} for value in values]
 
 
+def _normalize_symbol(value):
+    symbol = str(value or "").strip().upper().strip(",;")
+    return "".join(symbol.split())
+
+
+def _parse_symbol_text(value):
+    if isinstance(value, list):
+        raw_symbols = value
+    else:
+        raw_symbols = str(value or "").replace(";", ",").split(",")
+
+    symbols = []
+    seen = set()
+    for raw_symbol in raw_symbols:
+        symbol = _normalize_symbol(raw_symbol)
+        if symbol and symbol not in seen:
+            symbols.append(symbol)
+            seen.add(symbol)
+    return symbols
+
+
+def _format_symbol_text(symbols):
+    return ", ".join(_parse_symbol_text(symbols))
+
+
+def _asset_detail(asset):
+    details = [
+        asset.get("name"),
+        asset.get("asset_type"),
+        asset.get("exchange"),
+    ]
+    return " · ".join(str(detail) for detail in details if detail)
+
+
+def _symbol_suggestion_button(symbol, detail, icon="fa-magnifying-glass"):
+    return html.Button(
+        [
+            html.I(className=f"fa-solid {icon} symbol-suggestion-icon"),
+            html.Span(symbol, className="symbol-option-symbol"),
+            html.Span(detail, className="symbol-option-detail"),
+        ],
+        id={"type": "symbol-suggestion-option", "symbol": symbol},
+        type="button",
+        className="symbol-suggestion-option",
+    )
+
+
+def _symbol_chip(symbol):
+    return html.Span(
+        [
+            html.Span(symbol, className="symbol-chip-label"),
+            html.Button(
+                html.I(className="fa-solid fa-xmark"),
+                id={"type": "symbol-chip-remove", "symbol": symbol},
+                type="button",
+                title=f"Remove {symbol}",
+                className="symbol-chip-remove",
+            ),
+        ],
+        className="symbol-chip",
+    )
+
+
 def _custom_model_group_style(provider, model):
     metadata = get_provider_ui_metadata(provider)
     return {} if metadata.get("custom_models") and model == "custom" else {"display": "none"}
@@ -53,27 +116,6 @@ def _resolve_runtime_model(role, selected_model, custom_model):
     if resolved:
         return resolved, None
     return None, f"Please enter a {role} custom model ID."
-
-
-def _format_asset_option(asset):
-    symbol = asset.get("symbol", "")
-    name = (asset.get("name") or symbol).replace(" Common Stock", "").replace(" Class A", "")
-    if len(name) > 36:
-        name = f"{name[:33]}..."
-    asset_type = asset.get("asset_type") or asset.get("asset_class", "Asset")
-    exchange = asset.get("exchange") or "Alpaca"
-    market_cap = asset.get("market_cap")
-    market_cap_text = f" | Market cap: {market_cap}" if market_cap else ""
-    return {
-        "label": html.Span(
-            [
-                html.Span(symbol, className="symbol-option-symbol"),
-                html.Span(f" - {name} | {asset_type} | {exchange}{market_cap_text}", className="symbol-option-detail"),
-            ],
-            className="symbol-option-label",
-        ),
-        "value": symbol,
-    }
 
 
 def _status_panel(title, body="", items=None, tone="neutral", icon="fa-circle-info"):
@@ -290,46 +332,114 @@ def register_control_callbacks(app):
         )
 
     @app.callback(
-        Output("ticker-picker", "options"),
-        [Input("ticker-picker", "search_value")],
-        [State("ticker-picker", "value")],
+        Output("symbol-selected-chips", "children"),
+        [Input("ticker-input", "value")],
     )
-    def update_symbol_picker_options(search_value, selected_symbols):
-        """Search Alpaca assets as the user types, preserving already selected tags."""
-        selected_symbols = selected_symbols or []
-        assets = AlpacaUtils.search_assets(search_value or "", limit=14)
-        options = [_format_asset_option(asset) for asset in assets]
-        option_values = {option["value"] for option in options}
-
-        for symbol in selected_symbols:
-            if symbol and symbol not in option_values:
-                options.append(
-                    {
-                        "label": html.Span(symbol, className="symbol-option-symbol"),
-                        "value": symbol,
-                    }
-                )
-
-        return options
+    def render_selected_symbol_chips(symbol_text):
+        """Render selected symbols as removable chips."""
+        selected_symbols = _parse_symbol_text(symbol_text)
+        if not selected_symbols:
+            return ""
+        return [_symbol_chip(symbol) for symbol in selected_symbols]
 
     @app.callback(
-        [Output("ticker-input", "value"),
-         Output("symbol-search-status", "children")],
-        [Input("ticker-picker", "value")],
+        Output("symbol-suggestions", "children"),
+        [
+            Input("symbol-query-input", "value"),
+            Input("ticker-input", "value"),
+        ],
     )
-    def sync_symbol_picker_to_input(selected_symbols):
-        """Keep the existing analysis callback wired to a comma-separated hidden input."""
-        selected_symbols = selected_symbols or []
+    def update_symbol_suggestions(query, symbol_text):
+        """Show a separate suggestion menu so typing never rebuilds the input itself."""
+        query_symbol = _normalize_symbol(query)
+        if not query_symbol:
+            return ""
+
+        selected_symbols = set(_parse_symbol_text(symbol_text))
+        suggestions = []
+        seen = set()
+
+        try:
+            assets = AlpacaUtils.search_assets(query_symbol, limit=8)
+        except Exception as exc:
+            print(f"Symbol search failed for {query_symbol}: {exc}")
+            assets = []
+
+        for asset in assets:
+            symbol = _normalize_symbol(asset.get("symbol"))
+            if not symbol or symbol in selected_symbols or symbol in seen:
+                continue
+            suggestions.append(_symbol_suggestion_button(symbol, _asset_detail(asset), icon="fa-chart-line"))
+            seen.add(symbol)
+
+        if query_symbol not in selected_symbols and query_symbol not in seen:
+            suggestions.append(_symbol_suggestion_button(query_symbol, "Add custom symbol", icon="fa-plus"))
+
+        if not suggestions:
+            return html.Div("Already selected", className="symbol-suggestion-empty")
+
+        return suggestions
+
+    @app.callback(
+        [
+            Output("ticker-input", "value"),
+            Output("symbol-query-input", "value"),
+        ],
+        [
+            Input("symbol-query-input", "n_submit"),
+            Input({"type": "symbol-suggestion-option", "symbol": ALL}, "n_clicks"),
+            Input({"type": "symbol-chip-remove", "symbol": ALL}, "n_clicks"),
+        ],
+        [
+            State("symbol-query-input", "value"),
+            State("ticker-input", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def update_selected_symbols(query_submits, suggestion_clicks, remove_clicks, query, symbol_text):
+        """Add symbols from Enter or suggestion clicks, and remove chips."""
+        selected_symbols = _parse_symbol_text(symbol_text)
+        triggered_id = ctx.triggered_id
+        triggered_value = ctx.triggered[0].get("value") if ctx.triggered else None
+        if not triggered_value:
+            return no_update, no_update
+
+        if isinstance(triggered_id, dict):
+            trigger_type = triggered_id.get("type")
+            trigger_symbol = _normalize_symbol(triggered_id.get("symbol"))
+            if trigger_type == "symbol-chip-remove" and trigger_symbol:
+                updated_symbols = [symbol for symbol in selected_symbols if symbol != trigger_symbol]
+                return _format_symbol_text(updated_symbols), no_update
+            if trigger_type == "symbol-suggestion-option" and trigger_symbol:
+                updated_symbols = _parse_symbol_text([*selected_symbols, trigger_symbol])
+                return _format_symbol_text(updated_symbols), ""
+
+        if triggered_id == "symbol-query-input":
+            query_symbols = _parse_symbol_text(query)
+            if not query_symbols:
+                return no_update, ""
+            updated_symbols = _parse_symbol_text([*selected_symbols, *query_symbols])
+            return _format_symbol_text(updated_symbols), ""
+
+        return no_update, no_update
+
+    @app.callback(
+        Output("symbol-search-status", "children"),
+        [Input("ticker-input", "value")],
+    )
+    def update_symbol_input_status(symbol_text):
+        """Show lightweight validation guidance for the selected symbols."""
+        selected_symbols = _parse_symbol_text(symbol_text)
         if not selected_symbols:
-            return "", html.Div(
+            return html.Div(
                 [
                     html.I(className="fa-solid fa-circle-exclamation me-2"),
-                    "Choose at least one valid Alpaca asset.",
+                    "Enter at least one stock or crypto symbol.",
                 ],
                 className="symbol-search-empty",
             )
 
-        return ", ".join(selected_symbols), html.Div(
+        return html.Div(
             [
                 html.Span(
                     [
@@ -338,7 +448,7 @@ def register_control_callbacks(app):
                     ],
                     className="symbol-search-count",
                 ),
-                html.Span("Validated through Alpaca asset search; market cap appears when the data source provides it.", className="symbol-search-copy"),
+                html.Span("Type to search, click a suggestion to add it, or press Enter to add a custom symbol.", className="symbol-search-copy"),
             ],
             className="symbol-search-summary",
         )

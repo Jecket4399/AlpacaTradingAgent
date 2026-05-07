@@ -2285,58 +2285,146 @@ body {
     margin-top: 0.18rem;
 }
 
-.symbol-search-dropdown .Select-control,
-.symbol-search-dropdown .Select-menu-outer,
-.symbol-search-dropdown .Select-input,
-.symbol-search-dropdown .Select-placeholder {
+.symbol-picker {
+    width: 100%;
+}
+
+.symbol-combobox-wrap {
+    position: relative;
+}
+
+.symbol-combobox {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #334155;
+    border-radius: 7px;
     background: #111827;
     color: #F8FAFC;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-.symbol-search-dropdown .Select-control {
-    min-height: 42px;
-    border-color: #334155;
-    border-radius: 7px;
-}
-
-.symbol-search-dropdown.is-focused .Select-control,
-.symbol-search-dropdown .Select-control:hover {
+.symbol-combobox:focus-within {
     border-color: #2DD4BF;
     box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.14);
 }
 
-.symbol-search-dropdown .Select-menu-outer {
-    z-index: 20;
-    border-color: #334155;
-    border-radius: 7px;
+.symbol-chip-list {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.symbol-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    min-height: 28px;
+    padding: 0.18rem 0.26rem 0.18rem 0.56rem;
+    border: 1px solid rgba(45, 212, 191, 0.38);
+    border-radius: 999px;
+    background: rgba(45, 212, 191, 0.12);
+    color: #F8FAFC;
+    font-size: 0.82rem;
+    font-weight: 750;
+    line-height: 1;
+}
+
+.symbol-chip-label {
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.symbol-search-dropdown .VirtualizedSelectOption {
-    background: #111827;
-    color: #E2E8F0;
-    line-height: 1.35;
-    padding: 10px 12px;
+.symbol-chip-remove {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #5EEAD4;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
 }
 
-.symbol-search-dropdown .VirtualizedSelectFocusedOption {
-    background: #1B2638;
+.symbol-chip-remove:hover {
+    background: rgba(248, 250, 252, 0.12);
     color: #F8FAFC;
 }
 
-.symbol-search-dropdown .Select-value {
-    border-color: rgba(45, 212, 191, 0.38) !important;
-    background: rgba(45, 212, 191, 0.12) !important;
-    color: #F8FAFC !important;
-    border-radius: 999px !important;
+.symbol-query-input {
+    flex: 1 1 140px;
+    min-width: 130px;
+    height: 28px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #F8FAFC;
+    font-size: 0.92rem;
 }
 
-.symbol-search-dropdown .Select-value-label {
-    color: #F8FAFC !important;
+.symbol-query-input::placeholder {
+    color: #64748B;
 }
 
-.symbol-search-dropdown .Select-value-label .symbol-option-detail {
+.symbol-suggestions-menu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 80;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #334155;
+    border-radius: 7px;
+    background: #111827;
+    box-shadow: 0 18px 38px rgba(2, 6, 23, 0.42);
+}
+
+.symbol-suggestions-menu:empty {
     display: none;
+}
+
+.symbol-suggestion-option {
+    display: grid;
+    grid-template-columns: 18px minmax(76px, auto) 1fr;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 12px;
+    border: 0;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.72);
+    background: #111827;
+    color: #E2E8F0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.symbol-suggestion-option:last-child {
+    border-bottom: 0;
+}
+
+.symbol-suggestion-option:hover,
+.symbol-suggestion-option:focus {
+    background: #1B2638;
+    color: #F8FAFC;
+    outline: 0;
+}
+
+.symbol-suggestion-icon {
+    color: #5EEAD4;
+    font-size: 0.78rem;
 }
 
 .symbol-option-symbol {
@@ -2348,13 +2436,10 @@ body {
     font-weight: 500;
 }
 
-.symbol-search-dropdown .Select-value-icon {
-    border-right-color: rgba(45, 212, 191, 0.28) !important;
-    color: #5EEAD4 !important;
-}
-
-.symbol-search-dropdown .Select-input > input {
-    color: #F8FAFC !important;
+.symbol-suggestion-empty {
+    padding: 10px 12px;
+    color: #94A3B8;
+    font-size: 0.86rem;
 }
 
 .symbol-search-status {

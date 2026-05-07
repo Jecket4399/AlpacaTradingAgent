@@ -19,7 +19,7 @@ def register_storage_callbacks(app):
     @app.callback(
         Output("settings-store", "data"),
         [
-            Input("ticker-picker", "value"),
+            Input("ticker-input", "value"),
             Input("analyst-market", "value"),
             Input("analyst-social", "value"),
             Input("analyst-news", "value"),
