@@ -238,7 +238,7 @@ The web interface offers comprehensive trading and analysis capabilities:
 - Support for mixed portfolios (e.g., `"NVDA, ETH/USD, AAPL"`)
 
 <p align="center">
-  <img src="assets/demo/analyst_list.gif" style="width: 100%; height: auto;">
+  <img src="assets/demo/config_and_run.gif" style="width: 100%; height: auto;">
 </p>
 
 **Live Trading Integration**
@@ -248,7 +248,7 @@ The web interface offers comprehensive trading and analysis capabilities:
 - Real-time portfolio value tracking
 
 <p align="center">
-  <img src="assets/demo/config_and_run.gif" style="width: 100%; height: auto;">
+  <img src="assets/demo/analyst_list.gif" style="width: 100%; height: auto;">
 </p>
 
 **Interactive Charts & Data**
