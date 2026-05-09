@@ -8,12 +8,14 @@ Key points to focus on:
 - Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
 
 Resources available:
-Decision claim matrix: {claim_matrix}
+Evidence-scored decision claim matrix: {claim_matrix}
 Full untruncated analyst reports: {all_reports_text}
 Debate digest: {debate_digest}
 Conversation history of the debate: {history}
 Last bear argument: {current_response}
 Reflections from similar situations and lessons learned: {past_memory_str}
+
+Use claim IDs from the scored matrix when making or refuting points. Prioritize bullish claims with high evidence, freshness, numeric support, and low contradiction scores; directly explain why bearish high-score claims should be discounted if you challenge them.
 
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position. You must also address reflections and learn from lessons and mistakes you made in the past.
 

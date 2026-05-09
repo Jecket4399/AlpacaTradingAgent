@@ -115,6 +115,14 @@ class GraphSetup:
                     symbol=symbol,
                     metadata={"node_name": node_name},
                 )
+                evidence_scoreboard = result["report_context"].get("evidence_scoreboard")
+                if evidence_scoreboard:
+                    logger.log_agent_output(
+                        output_type="report_context_evidence_scoreboard",
+                        content=evidence_scoreboard,
+                        symbol=symbol,
+                        metadata={"node_name": node_name},
+                    )
 
             investment_debate_state = result.get("investment_debate_state")
             if isinstance(investment_debate_state, dict):

@@ -72,6 +72,9 @@ DEFAULT_CONFIG = {
     "report_context_compact_point_chars": 180,  # Max chars per compact claim
     "report_context_compact_excerpt_chars": 240,  # Max chars per compact evidence excerpt
     "report_context_compact_max_excerpts": 8,  # Max compact evidence excerpts injected per prompt
+    "report_context_max_claims_per_report": 8,  # Structured evidence claims scored per analyst report
+    "report_context_claim_chars": 260,  # Max chars per structured evidence claim
+    "report_context_scoreboard_claims_per_side": 3,  # Top scored claims shown for bull/bear sides
     "debate_digest_max_messages": 6,  # Max recent debate messages included in compact debate digest
     "debate_digest_message_chars": 520,  # Max chars per message in debate digest
     "debate_digest_total_chars": 2600,  # Total max chars for debate digest block

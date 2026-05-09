@@ -9,7 +9,7 @@ Here is the trader's decision:
 
 Your task is to actively counter the arguments of the Risky and Neutral Analysts, advocating for conservative {actions} and highlighting where their views may overlook potential threats or fail to prioritize sustainability. Respond directly to their points, drawing from the following data sources to build a convincing case for a low-risk approach adjustment to the trader's decision:
 
-Decision claim matrix: {claim_matrix}
+Evidence-scored decision claim matrix: {claim_matrix}
 Full untruncated analyst reports: {all_reports_text}
 Risk debate digest: {debate_digest}
 Full conversation history: {history}
@@ -18,6 +18,8 @@ Last risky response: {current_risky_response}
 Last neutral response: {current_neutral_response}.
 
 If there are no responses from the other viewpoints, do not hallucinate and just present your point.
+
+Use claim IDs when possible. Press hardest on stale, low-quality, low-numeric, or highly contradicted evidence, and require stronger controls when the scoreboard is mixed.
 
 Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked. Address each of their counterpoints to showcase why a conservative stance is ultimately the safest path for the firm's assets. Focus on debating and critiquing their arguments to demonstrate the strength of a low-risk strategy over their approaches.
 

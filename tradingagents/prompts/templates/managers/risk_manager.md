@@ -7,7 +7,7 @@ Inputs:
 - Position stats: {position_stats_desc}
 - Account stats: {account_status_desc}
 - Trader plan: {trader_plan}
-- Decision claim matrix: {claim_matrix}
+- Evidence-scored decision claim matrix: {claim_matrix}
 - Full untruncated analyst reports: {all_reports_text}
 - Risk debate digest: {risk_debate_digest}
 - Full risk debate history: {history}
@@ -18,6 +18,7 @@ Decision constraints:
 1. Reject proposals implying >3% account risk or unclear exits.
 2. Require explicit invalidation/stop logic.
 3. Prioritize capital preservation under elevated volatility/event risk.
+4. Treat high contradiction or low freshness scores as reasons to reduce size, wait for confirmation, or choose HOLD/NEUTRAL.
 
 Output format (concise):
 - Recommendation: {actions} (with confidence high/medium/low)

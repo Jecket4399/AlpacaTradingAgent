@@ -479,6 +479,10 @@ class TradingAgentsGraph:
             "news_report": final_state["news_report"],
             "fundamentals_report": final_state["fundamentals_report"],
             "report_context_stats": final_state.get("report_context", {}).get("stats", {}),
+            "report_context_evidence_scoreboard": final_state.get("report_context", {}).get(
+                "evidence_scoreboard",
+                {},
+            ),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],

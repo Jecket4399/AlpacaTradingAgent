@@ -11,7 +11,7 @@ Your task is to create a compelling case for aggressive {actions} by questioning
 
 Incorporate insights from the following sources into your arguments:
 
-Decision claim matrix: {claim_matrix}
+Evidence-scored decision claim matrix: {claim_matrix}
 Full untruncated analyst reports: {all_reports_text}
 Risk debate digest: {debate_digest}
 Full conversation history: {history}
@@ -20,6 +20,8 @@ Last conservative argument: {current_safe_response}
 Last neutral argument: {current_neutral_response}.
 
 If there are no responses from the other viewpoints, do not hallucinate and just present your point.
+
+Use claim IDs when possible. Emphasize upside only when the supporting claims have strong evidence/actionability scores and explain why contradictions should not block the opportunity.
 
 Engage actively by addressing any specific concerns raised, refuting the weaknesses in their logic, and asserting the benefits of risk-taking to outpace market norms. Maintain a focus on debating and persuading, not just presenting data. Challenge each counterpoint to underscore why a high-risk approach is optimal.
 
