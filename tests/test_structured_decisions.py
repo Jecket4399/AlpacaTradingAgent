@@ -1,17 +1,23 @@
 import unittest
+from unittest.mock import patch
 
 from tradingagents.agents.schemas import (
     AdvisoryRating,
     ExecutableAction,
+    PositionTransition,
     ResearchPlan,
     RiskDecision,
+    TargetPosition,
     TraderProposal,
+    build_trade_intent_from_risk_decision,
     render_research_plan,
     render_risk_decision,
     render_trader_proposal,
+    trade_intent_action,
 )
 from tradingagents.agents.utils.agent_trading_modes import extract_recommendation
 from tradingagents.agents.utils.structured import invoke_structured_or_freetext
+from tradingagents.dataflows.alpaca_utils import AlpacaUtils
 
 
 class Message:
@@ -61,6 +67,69 @@ class StructuredDecisionTests(unittest.TestCase):
         self.assertIn("FINAL TRANSACTION PROPOSAL: **LONG**", trader)
         self.assertIn("FINAL TRANSACTION PROPOSAL: **SELL**", risk)
         self.assertEqual(extract_recommendation(research, "investment"), "BUY")
+
+    def test_trade_intent_derives_execution_contract_from_risk_decision(self):
+        intent = build_trade_intent_from_risk_decision(
+            symbol="AAPL",
+            trading_mode="investment",
+            current_position="NEUTRAL",
+            allow_shorts=False,
+            trade_date="2026-01-02",
+            decision=RiskDecision(
+                action=ExecutableAction.BUY,
+                confidence="medium",
+                advisory_rating=AdvisoryRating.OVERWEIGHT,
+                risk_rationale="Upside exceeds defined risk.",
+                required_controls="Stop below support.",
+                stop_loss="182.50",
+                take_profit="195 then 202",
+            ),
+        )
+
+        self.assertEqual(intent.target_position, TargetPosition.LONG)
+        self.assertEqual(intent.position_transition, PositionTransition.OPEN_LONG)
+        self.assertEqual(intent.order_intent.side, "buy")
+        self.assertEqual(intent.risk_controls.mode, "advisory_only")
+        self.assertIn("protective-order", " ".join(intent.execution_constraints.warnings))
+        self.assertEqual(trade_intent_action(intent.model_dump(mode="json")), "BUY")
+
+    def test_alpaca_execution_prefers_validated_trade_intent(self):
+        intent = build_trade_intent_from_risk_decision(
+            symbol="AAPL",
+            trading_mode="investment",
+            current_position="NEUTRAL",
+            allow_shorts=False,
+            trade_date="2026-01-02",
+            decision=RiskDecision(
+                action=ExecutableAction.BUY,
+                confidence="medium",
+                risk_rationale="Buy setup.",
+                required_controls="Stop below support.",
+            ),
+        ).model_dump(mode="json")
+
+        with patch.object(
+            AlpacaUtils,
+            "execute_trading_action",
+            return_value={"success": True, "symbol": "AAPL", "actions": []},
+        ) as execute:
+            result = AlpacaUtils.execute_trade_intent(
+                symbol="AAPL",
+                current_position="NEUTRAL",
+                trade_intent=intent,
+                dollar_amount=1000,
+                allow_shorts=False,
+            )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["trade_intent"]["action"], "BUY")
+        execute.assert_called_once_with(
+            symbol="AAPL",
+            current_position="NEUTRAL",
+            signal="BUY",
+            dollar_amount=1000,
+            allow_shorts=False,
+        )
 
     def test_structured_failure_falls_back_to_plain_text(self):
         content = invoke_structured_or_freetext(

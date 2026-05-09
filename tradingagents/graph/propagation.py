@@ -61,6 +61,13 @@ class Propagator:
             "news_report": "",
             "macro_report": "",
             "report_context": {},
+            "investment_plan": "",
+            "trader_investment_plan": "",
+            "final_trade_decision": "",
+            "final_trade_intent": {},
+            "trading_mode": "",
+            "current_position": "NEUTRAL",
+            "recommended_action": "",
         }
 
     def get_graph_args(self) -> Dict[str, Any]:

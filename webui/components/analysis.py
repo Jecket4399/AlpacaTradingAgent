@@ -8,6 +8,7 @@ from tradingagents.graph.checkpointer import clear_checkpoint
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.run_logger import get_run_audit_logger
 from tradingagents.dataflows.alpaca_utils import AlpacaUtils
+from tradingagents.agents.schemas import trade_intent_action
 from tradingagents.agents.utils.agent_trading_modes import extract_recommendation
 from webui.utils.state import app_state
 from webui.utils.charts import create_chart
@@ -31,9 +32,23 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
 
         print(f"[TRADE] Analysis complete for {ticker}, checking for recommended action")
 
+        # Prefer the typed execution intent produced by the risk manager.
+        trade_intent = state.get("final_trade_intent")
+        analysis_results = state.get("analysis_results") or {}
+        if not trade_intent:
+            trade_intent = analysis_results.get("trade_intent")
+        if not trade_intent and analysis_results.get("full_state"):
+            trade_intent = analysis_results["full_state"].get("final_trade_intent")
+
+        intent_action = trade_intent_action(trade_intent)
+        if intent_action:
+            print(f"[TRADE] Typed trade intent action: {intent_action}")
+
         # Get the recommended action
         recommended_action = state.get("recommended_action")
         print(f"[TRADE] Direct recommended_action: {recommended_action}")
+        if not recommended_action and intent_action:
+            recommended_action = intent_action
 
         if not recommended_action:
             # Try to extract from final trade decision
@@ -56,14 +71,24 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
         current_position = AlpacaUtils.get_current_position_state(ticker)
         print(f"[TRADE] Current position for {ticker}: {current_position}")
 
-        # Execute the trading action
-        result = AlpacaUtils.execute_trading_action(
-            symbol=ticker,
-            current_position=current_position,
-            signal=recommended_action,
-            dollar_amount=trade_amount,
-            allow_shorts=allow_shorts
-        )
+        # Execute the typed intent when present; fall back to legacy signal execution
+        # for older runs or providers that could not produce structured output.
+        if trade_intent:
+            result = AlpacaUtils.execute_trade_intent(
+                symbol=ticker,
+                current_position=current_position,
+                trade_intent=trade_intent,
+                dollar_amount=trade_amount,
+                allow_shorts=allow_shorts,
+            )
+        else:
+            result = AlpacaUtils.execute_trading_action(
+                symbol=ticker,
+                current_position=current_position,
+                signal=recommended_action,
+                dollar_amount=trade_amount,
+                allow_shorts=allow_shorts
+            )
 
         # Check individual action results and provide detailed feedback
         successful_actions = []
@@ -78,6 +103,9 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
                     failed_actions.append(f"{action_result['action']} failed: {action_info.get('error', 'Unknown error')}")
             else:
                 successful_actions.append(f"{action_result['action']}: {action_result.get('message', 'Action completed')}")
+
+        for warning in result.get("intent_warnings", []):
+            print(f"[TRADE] Intent warning: {warning}")
 
         # Print results based on overall success
         if result.get("success"):
@@ -96,9 +124,15 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
                 print(f"[TRADE] {success}")
             for failure in failed_actions:
                 print(f"[TRADE] {failure}")
+            if result.get("error"):
+                print(f"[TRADE] {result['error']}")
 
             # Store error information
-            state["trading_results"] = {"error": "One or more trading actions failed", "details": failed_actions}
+            state["trading_results"] = {
+                "error": result.get("error", "One or more trading actions failed"),
+                "details": failed_actions,
+                "raw_result": result,
+            }
 
     except Exception as e:
         print(f"[TRADE] Error executing trade for {ticker}: {e}")
@@ -234,7 +268,8 @@ def run_analysis(
 
         # Extract final results
         final_state = trace[-1]
-        decision = graph.process_signal(final_state["final_trade_decision"])
+        trade_intent = final_state.get("final_trade_intent")
+        decision = trade_intent_action(trade_intent) or graph.process_signal(final_state["final_trade_decision"])
         graph.curr_state = final_state
         graph.ticker = ticker
         graph._log_state(current_date, final_state)
@@ -273,6 +308,7 @@ def run_analysis(
 
         # NEW: Persist the extracted decision so the trading engine can act on it directly
         current_state["recommended_action"] = decision
+        current_state["final_trade_intent"] = trade_intent
 
         # Mark all agents as completed
         for agent in current_state["agent_statuses"]:
@@ -283,6 +319,7 @@ def run_analysis(
             "ticker": ticker,
             "date": current_date,
             "decision": decision,
+            "trade_intent": trade_intent,
             "full_state": final_state,
         }
 

@@ -13,6 +13,7 @@ from tradingagents.llm_clients import create_llm_client
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.utils.memory import FinancialSituationMemory, TradingMemoryLog
+from tradingagents.agents.schemas import trade_intent_action
 from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
@@ -415,7 +416,9 @@ class TradingAgentsGraph:
 
         # Return decision and processed signal
         try:
-            final_signal = self.process_signal(final_state["final_trade_decision"])
+            final_signal = trade_intent_action(final_state.get("final_trade_intent")) or self.process_signal(
+                final_state["final_trade_decision"]
+            )
             try:
                 from webui.utils.state import app_state
 
@@ -497,6 +500,7 @@ class TradingAgentsGraph:
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
+            "final_trade_intent": final_state.get("final_trade_intent", {}),
         }
 
         # Save to file

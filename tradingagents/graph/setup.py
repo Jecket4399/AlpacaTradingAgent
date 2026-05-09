@@ -96,6 +96,7 @@ class GraphSetup:
                 "investment_plan",
                 "trader_investment_plan",
                 "final_trade_decision",
+                "final_trade_intent",
             ]
             for output_key in output_keys:
                 output_value = result.get(output_key)

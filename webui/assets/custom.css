@@ -397,6 +397,45 @@ body {
 }
 
 /* Markdown Table Styling - ChatGPT-like appearance */
+.report-content-shell {
+    overflow: hidden;
+}
+
+.report-renderer {
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+}
+
+.report-rich-markdown {
+    color: #E2E8F0;
+}
+
+.report-rich-markdown h1,
+.report-rich-markdown h2,
+.report-rich-markdown h3 {
+    letter-spacing: 0;
+}
+
+.report-table-block {
+    border: 1px solid rgba(71, 85, 105, 0.62);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.55);
+    overflow: hidden;
+}
+
+.report-table-block {
+    padding: 0;
+}
+
+.report-table-title {
+    padding: 0.85rem 1rem;
+    color: #F8FAFC;
+    font-weight: 700;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(17, 24, 39, 0.72);
+}
+
 .dash-markdown table {
     width: 100%;
     border-collapse: collapse;

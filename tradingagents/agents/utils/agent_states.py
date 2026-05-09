@@ -96,3 +96,10 @@ class AgentState(MessagesState):
         RiskDebateState, "Current state of the debate on evaluating risk"
     ]
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
+    final_trade_intent: Annotated[
+        Dict[str, Any],
+        "Typed JSON execution intent derived from the final risk decision",
+    ]
+    trading_mode: Annotated[str, "investment or trading execution mode"]
+    current_position: Annotated[str, "Live position state at final risk decision time"]
+    recommended_action: Annotated[str, "Final executable signal extracted from the intent"]

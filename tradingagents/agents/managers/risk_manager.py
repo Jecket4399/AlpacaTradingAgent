@@ -1,6 +1,9 @@
-import time
-import json
-from ..schemas import RiskDecision, render_risk_decision
+from ..schemas import (
+    ExecutableAction,
+    RiskDecision,
+    build_trade_intent_from_risk_decision,
+    render_risk_decision,
+)
 from ..utils.agent_trading_modes import (
     ensure_final_transaction_proposal,
     get_trading_mode_context,
@@ -12,7 +15,7 @@ from ..utils.report_context import (
     get_agent_context_bundle,
     build_debate_digest,
 )
-from ..utils.structured import bind_structured, invoke_structured_or_freetext
+from ..utils.structured import bind_structured, invoke_structured_object_or_freetext
 from tradingagents.dataflows.alpaca_utils import AlpacaUtils
 from tradingagents.prompts import render_prompt
 
@@ -146,7 +149,7 @@ def create_risk_manager(llm, memory, config=None):
         # Capture the COMPLETE prompt that gets sent to the LLM
         capture_agent_prompt("final_trade_decision", prompt, company_name)
 
-        response_content = invoke_structured_or_freetext(
+        response_content, structured_decision = invoke_structured_object_or_freetext(
             structured_llm,
             llm,
             prompt,
@@ -163,6 +166,29 @@ def create_risk_manager(llm, memory, config=None):
         final_decision_content = ensure_final_transaction_proposal(
             response_content, extracted_recommendation, trading_mode
         )
+
+        if structured_decision is None:
+            structured_decision = RiskDecision(
+                action=ExecutableAction(extracted_recommendation),
+                confidence="unknown",
+                risk_rationale=(
+                    "Structured risk output was unavailable; execution intent was derived "
+                    "from the final transaction proposal line."
+                ),
+                required_controls=(
+                    "Review the Markdown risk report manually. Broker stop-loss and "
+                    "take-profit controls are not inferred from free text."
+                ),
+            )
+
+        trade_intent = build_trade_intent_from_risk_decision(
+            symbol=company_name,
+            trading_mode=trading_mode,
+            current_position=current_position,
+            decision=structured_decision,
+            allow_shorts=allow_shorts,
+            trade_date=state.get("trade_date"),
+        ).model_dump(mode="json")
 
         new_risk_debate_state = {
             "judge_decision": final_decision_content,
@@ -183,6 +209,7 @@ def create_risk_manager(llm, memory, config=None):
         return {
             "risk_debate_state": new_risk_debate_state,
             "final_trade_decision": final_decision_content,
+            "final_trade_intent": trade_intent,
             "trading_mode": trading_mode,
             "current_position": current_position,
             "recommended_action": extracted_recommendation,
