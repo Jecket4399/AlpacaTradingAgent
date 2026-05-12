@@ -13,6 +13,7 @@ from tradingagents.llm_clients import create_llm_client
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.utils.memory import FinancialSituationMemory, TradingMemoryLog
+from tradingagents.agents.schemas import trade_intent_action
 from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
@@ -415,7 +416,9 @@ class TradingAgentsGraph:
 
         # Return decision and processed signal
         try:
-            final_signal = self.process_signal(final_state["final_trade_decision"])
+            final_signal = trade_intent_action(final_state.get("final_trade_intent")) or self.process_signal(
+                final_state["final_trade_decision"]
+            )
             try:
                 from webui.utils.state import app_state
 
@@ -476,6 +479,10 @@ class TradingAgentsGraph:
             "news_report": final_state["news_report"],
             "fundamentals_report": final_state["fundamentals_report"],
             "report_context_stats": final_state.get("report_context", {}).get("stats", {}),
+            "report_context_evidence_scoreboard": final_state.get("report_context", {}).get(
+                "evidence_scoreboard",
+                {},
+            ),
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],
@@ -497,6 +504,7 @@ class TradingAgentsGraph:
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
+            "final_trade_intent": final_state.get("final_trade_intent", {}),
         }
 
         # Save to file

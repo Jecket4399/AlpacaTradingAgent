@@ -33,3 +33,23 @@ def invoke_structured_or_freetext(
 
     response = plain_llm.invoke(prompt)
     return response.content if hasattr(response, "content") else str(response)
+
+
+def invoke_structured_object_or_freetext(
+    structured_llm: Optional[Any],
+    plain_llm: Any,
+    prompt: Any,
+    render: Callable[[T], str],
+    agent_name: str,
+) -> tuple[str, Optional[T]]:
+    """Return rendered text plus the structured object when the provider supports it."""
+    if structured_llm is not None:
+        try:
+            structured_value = structured_llm.invoke(prompt)
+            return render(structured_value), structured_value
+        except Exception as exc:
+            logger.warning("%s structured output failed; retrying as free text (%s)", agent_name, exc)
+
+    response = plain_llm.invoke(prompt)
+    content = response.content if hasattr(response, "content") else str(response)
+    return content, None

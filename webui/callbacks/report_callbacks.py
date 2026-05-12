@@ -10,6 +10,7 @@ from webui.utils.state import app_state
 from webui.components.ui import render_researcher_debate, render_risk_debate
 from webui.utils.report_validator import validate_reports_for_ui
 from webui.utils.prompt_capture import get_agent_prompt
+from webui.utils.report_rendering import create_rich_report_content
 
 
 def _is_table_row(line):
@@ -188,18 +189,14 @@ def create_markdown_content(content, default_message="No content available yet."
             content = normalize_market_markdown_sections(content)
         content = normalize_markdown_tables(content)
     
-    markdown_component = dcc.Markdown(
-        content,
-        mathjax=True,
-        highlight_config={"theme": "dark"},
-        dangerously_allow_html=False,
-        className='enhanced-markdown-content',
+    report_component = html.Div(
+        create_rich_report_content(content, min_height="1000px"),
+        className="report-content-shell",
         style={
             "background": "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
             "border-radius": "8px",
             "padding": "1.5rem",
             "border": "1px solid rgba(51, 65, 85, 0.3)",
-            "min-height": "1000px",
             "color": "#E2E8F0",
             "line-height": "1.6"
         }
@@ -217,10 +214,10 @@ def create_markdown_content(content, default_message="No content available yet."
                     create_show_tool_outputs_button(report_type)
                 ], className="text-end mb-2 report-debug-buttons")
             ]),
-            markdown_component
+            report_component
         ])
     
-    return markdown_component
+    return report_component
 
 
 def register_report_callbacks(app):

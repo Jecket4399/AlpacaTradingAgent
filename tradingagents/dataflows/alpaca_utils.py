@@ -15,6 +15,7 @@ from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, QueryOrderS
 from alpaca.common.enums import Sort
 from .config import get_api_key, get_alpaca_use_paper, get_config
 from .ticker_utils import TickerUtils
+from tradingagents.agents.schemas import TradeIntent, trade_intent_action
 
 
 # Fallback dictionary for company names
@@ -831,6 +832,99 @@ class AlpacaUtils:
             return {"success": False, "error": error_msg}
 
     @staticmethod
+    def execute_trade_intent(
+        symbol: str,
+        current_position: str,
+        trade_intent: Union[TradeIntent, Dict[str, Any]],
+        dollar_amount: float,
+        allow_shorts: bool = False,
+    ) -> dict:
+        """Validate and execute a typed TradeIntent.
+
+        Protective stops/targets in the intent are audit metadata for now. This
+        method intentionally delegates to the existing simple market/close
+        execution path until bracket/OCO/OTO order placement is implemented.
+        """
+        try:
+            intent = (
+                trade_intent
+                if isinstance(trade_intent, TradeIntent)
+                else TradeIntent.model_validate(trade_intent)
+            )
+        except Exception as e:
+            return {"success": False, "error": f"Invalid trade intent: {e}"}
+
+        requested_symbol = (intent.symbol or "").upper().replace("/", "")
+        actual_symbol = (symbol or "").upper().replace("/", "")
+        if requested_symbol and requested_symbol != actual_symbol:
+            return {
+                "success": False,
+                "error": f"Trade intent symbol {intent.symbol} does not match execution symbol {symbol}",
+                "trade_intent": intent.model_dump(mode="json"),
+            }
+
+        signal = trade_intent_action(intent)
+        if not signal:
+            return {
+                "success": False,
+                "error": "Trade intent does not contain an executable action",
+                "trade_intent": intent.model_dump(mode="json"),
+            }
+
+        mode = (intent.trading_mode or "investment").lower()
+        allowed_actions = (
+            {"LONG", "NEUTRAL", "SHORT"}
+            if mode == "trading"
+            else {"BUY", "HOLD", "SELL"}
+        )
+        if signal not in allowed_actions:
+            return {
+                "success": False,
+                "error": f"Action {signal} is invalid for {mode} mode",
+                "trade_intent": intent.model_dump(mode="json"),
+            }
+
+        is_crypto = "/" in symbol.upper()
+        if signal == "SHORT" and (is_crypto or not allow_shorts):
+            reason = (
+                "Crypto short exposure is not supported by Alpaca spot trading"
+                if is_crypto
+                else "Short exposure is disabled for this session"
+            )
+            return {
+                "success": False,
+                "error": reason,
+                "trade_intent": intent.model_dump(mode="json"),
+            }
+
+        warnings = list(intent.execution_constraints.warnings)
+        if intent.current_position.value != current_position:
+            warnings.append(
+                f"Intent was generated with {intent.current_position.value} position; live position is {current_position}."
+            )
+        if (
+            intent.risk_controls.mode == "advisory_only"
+            and (
+                intent.risk_controls.required_controls
+                or intent.risk_controls.stop_loss
+                or intent.risk_controls.take_profit
+            )
+        ):
+            warnings.append("Broker stop-loss/take-profit orders were not submitted; controls remain advisory.")
+
+        result = AlpacaUtils.execute_trading_action(
+            symbol=symbol,
+            current_position=current_position,
+            signal=signal,
+            dollar_amount=dollar_amount,
+            allow_shorts=allow_shorts,
+        )
+        result["trade_intent"] = intent.model_dump(mode="json")
+        result["intent_warnings"] = warnings
+        result["protective_order_status"] = "advisory_only"
+        return result
+
+    @staticmethod
     def execute_trading_action(symbol: str, current_position: str, signal: str, 
                              dollar_amount: float, allow_shorts: bool = False) -> dict:
         """
@@ -970,6 +1064,16 @@ class AlpacaUtils:
                 
                 elif signal == "HOLD":
                     results.append({"action": "hold", "message": f"Holding current position in {symbol}"})
+
+            if not results:
+                return {
+                    "success": False,
+                    "symbol": symbol,
+                    "current_position": current_position,
+                    "signal": signal,
+                    "actions": [],
+                    "error": f"Unsupported trading signal '{signal}' for allow_shorts={allow_shorts}",
+                }
             
             # Check if any critical actions failed
             has_failures = False

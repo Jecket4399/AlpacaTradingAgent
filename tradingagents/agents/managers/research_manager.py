@@ -44,6 +44,7 @@ def create_research_manager(llm, memory, config=None):
                 f"Adjudicate bull/bear debate for {state.get('company_of_interest', '')} "
                 "and produce a decisive investment plan."
             ),
+            config=config,
         )
         claim_matrix = context_bundle.get("decision_claim_matrix", "")
         debate_digest = build_debate_digest(investment_debate_state, "investment")

@@ -6,6 +6,7 @@ The upstream 5-tier rating is advisory metadata only.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -27,6 +28,86 @@ class ExecutableAction(str, Enum):
     LONG = "LONG"
     NEUTRAL = "NEUTRAL"
     SHORT = "SHORT"
+
+
+class TargetPosition(str, Enum):
+    LONG = "LONG"
+    SHORT = "SHORT"
+    NEUTRAL = "NEUTRAL"
+
+
+class PositionTransition(str, Enum):
+    OPEN_LONG = "OPEN_LONG"
+    OPEN_SHORT = "OPEN_SHORT"
+    CLOSE_LONG = "CLOSE_LONG"
+    CLOSE_SHORT = "CLOSE_SHORT"
+    REVERSE_TO_LONG = "REVERSE_TO_LONG"
+    REVERSE_TO_SHORT = "REVERSE_TO_SHORT"
+    HOLD_LONG = "HOLD_LONG"
+    HOLD_SHORT = "HOLD_SHORT"
+    STAY_NEUTRAL = "STAY_NEUTRAL"
+    UNKNOWN = "UNKNOWN"
+
+
+class PlannedBrokerAction(BaseModel):
+    action: str = Field(description="Deterministic execution step, such as open_long or close_short.")
+    order_type: str = Field(description="Broker order primitive: market, close_position, or none.")
+    side: Optional[str] = Field(default=None, description="Broker side when applicable: buy or sell.")
+    sizing_basis: str = Field(description="How execution should size this step.")
+
+
+class RiskControls(BaseModel):
+    mode: str = Field(
+        default="advisory_only",
+        description="advisory_only until broker protective-order execution is implemented.",
+    )
+    required_controls: Optional[str] = Field(default=None, description="Full risk-control guidance from the risk manager.")
+    stop_loss: Optional[str] = Field(default=None, description="Stop-loss or invalidation guidance.")
+    take_profit: Optional[str] = Field(default=None, description="Take-profit or target guidance.")
+    invalidation: Optional[str] = Field(default=None, description="Setup invalidation guidance.")
+    max_position_size: Optional[str] = Field(default=None, description="Position-size or max exposure guidance.")
+
+
+class ExecutionConstraints(BaseModel):
+    allow_shorts: bool = Field(description="Whether the user/session permits short exposure.")
+    asset_class: str = Field(description="equity or crypto.")
+    requires_open_market: bool = Field(description="Whether regular market hours are normally required.")
+    broker_protective_orders_enabled: bool = Field(
+        default=False,
+        description="False when stops/targets are recorded but not submitted as broker child orders.",
+    )
+    warnings: list[str] = Field(default_factory=list, description="Execution constraints and safety notes.")
+
+
+class OrderIntent(BaseModel):
+    order_type: str = Field(description="Primary order type intended for execution.")
+    order_class: str = Field(default="simple", description="simple, bracket, oco, or oto.")
+    side: Optional[str] = Field(default=None, description="Primary broker side: buy or sell.")
+    sizing_basis: str = Field(description="configured_notional, current_position, or no_order.")
+    notional_usd: Optional[float] = Field(default=None, description="Configured notional, if known.")
+    quantity: Optional[float] = Field(default=None, description="Explicit quantity, if known.")
+    time_in_force: Optional[str] = Field(default=None, description="Broker time in force, if known.")
+
+
+class TradeIntent(BaseModel):
+    """Machine-readable execution contract consumed by the execution engine."""
+
+    schema_version: str = Field(default="1.0")
+    symbol: str
+    trade_date: Optional[str] = None
+    generated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    trading_mode: str = Field(description="investment or trading.")
+    action: ExecutableAction = Field(description="Final executable signal.")
+    current_position: TargetPosition
+    target_position: TargetPosition
+    position_transition: PositionTransition
+    confidence: str = Field(description="Confidence level copied from the risk decision.")
+    advisory_rating: Optional[AdvisoryRating] = None
+    order_intent: OrderIntent
+    planned_actions: list[PlannedBrokerAction] = Field(default_factory=list)
+    risk_controls: RiskControls = Field(default_factory=RiskControls)
+    execution_constraints: ExecutionConstraints
+    rationale_summary: str = Field(description="Compact rationale suitable for audit logs.")
 
 
 class ResearchPlan(BaseModel):
@@ -54,6 +135,12 @@ class RiskDecision(BaseModel):
     risk_rationale: str = Field(description="Risk-adjusted justification.")
     required_controls: str = Field(description="Stops, invalidation, sizing, and risk controls.")
     advisory_rating: Optional[AdvisoryRating] = Field(default=None, description="Optional 5-tier advisory rating.")
+    entry_guidance: Optional[str] = Field(default=None, description="Entry price or confirmation guidance.")
+    stop_loss: Optional[str] = Field(default=None, description="Structured stop-loss guidance if available.")
+    take_profit: Optional[str] = Field(default=None, description="Structured take-profit or target guidance if available.")
+    invalidation: Optional[str] = Field(default=None, description="Structured invalidation condition if available.")
+    max_position_size: Optional[str] = Field(default=None, description="Structured max position size or risk budget.")
+    time_horizon: Optional[str] = Field(default=None, description="Expected holding period or review window.")
 
 
 def _rating_line(rating: Optional[AdvisoryRating]) -> list[str]:
@@ -104,7 +191,235 @@ def render_risk_decision(decision: RiskDecision) -> str:
         f"**Risk Rationale**: {decision.risk_rationale}",
         "",
         f"**Required Controls**: {decision.required_controls}",
-        "",
-        f"FINAL TRANSACTION PROPOSAL: **{decision.action.value}**",
     ]
+    if decision.entry_guidance:
+        parts.extend(["", f"**Entry Guidance**: {decision.entry_guidance}"])
+    if decision.stop_loss:
+        parts.extend(["", f"**Stop Loss**: {decision.stop_loss}"])
+    if decision.take_profit:
+        parts.extend(["", f"**Take Profit**: {decision.take_profit}"])
+    if decision.invalidation:
+        parts.extend(["", f"**Invalidation**: {decision.invalidation}"])
+    if decision.max_position_size:
+        parts.extend(["", f"**Max Position Size**: {decision.max_position_size}"])
+    if decision.time_horizon:
+        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+    parts.extend(["", f"FINAL TRANSACTION PROPOSAL: **{decision.action.value}**"])
     return "\n".join(parts)
+
+
+def trade_intent_action(intent: Optional[dict | TradeIntent]) -> Optional[str]:
+    if not intent:
+        return None
+    if isinstance(intent, TradeIntent):
+        return intent.action.value
+    action = intent.get("action") if isinstance(intent, dict) else None
+    if isinstance(action, ExecutableAction):
+        return action.value
+    return str(action).upper() if action else None
+
+
+def _normalize_position(position: Optional[str]) -> TargetPosition:
+    value = (position or "NEUTRAL").upper()
+    if value == "LONG":
+        return TargetPosition.LONG
+    if value == "SHORT":
+        return TargetPosition.SHORT
+    return TargetPosition.NEUTRAL
+
+
+def _target_position(
+    action: ExecutableAction,
+    trading_mode: str,
+    current_position: TargetPosition,
+) -> TargetPosition:
+    mode = (trading_mode or "investment").lower()
+    if mode == "trading":
+        if action == ExecutableAction.LONG:
+            return TargetPosition.LONG
+        if action == ExecutableAction.SHORT:
+            return TargetPosition.SHORT
+        if action == ExecutableAction.NEUTRAL:
+            return TargetPosition.NEUTRAL
+        return current_position
+
+    if action == ExecutableAction.BUY:
+        return TargetPosition.LONG
+    if action == ExecutableAction.SELL:
+        return TargetPosition.NEUTRAL
+    return current_position
+
+
+def _position_transition(
+    current_position: TargetPosition,
+    target_position: TargetPosition,
+) -> PositionTransition:
+    transition_map = {
+        (TargetPosition.NEUTRAL, TargetPosition.LONG): PositionTransition.OPEN_LONG,
+        (TargetPosition.NEUTRAL, TargetPosition.SHORT): PositionTransition.OPEN_SHORT,
+        (TargetPosition.NEUTRAL, TargetPosition.NEUTRAL): PositionTransition.STAY_NEUTRAL,
+        (TargetPosition.LONG, TargetPosition.LONG): PositionTransition.HOLD_LONG,
+        (TargetPosition.LONG, TargetPosition.NEUTRAL): PositionTransition.CLOSE_LONG,
+        (TargetPosition.LONG, TargetPosition.SHORT): PositionTransition.REVERSE_TO_SHORT,
+        (TargetPosition.SHORT, TargetPosition.SHORT): PositionTransition.HOLD_SHORT,
+        (TargetPosition.SHORT, TargetPosition.NEUTRAL): PositionTransition.CLOSE_SHORT,
+        (TargetPosition.SHORT, TargetPosition.LONG): PositionTransition.REVERSE_TO_LONG,
+    }
+    return transition_map.get((current_position, target_position), PositionTransition.UNKNOWN)
+
+
+def _planned_actions(transition: PositionTransition) -> list[PlannedBrokerAction]:
+    action_map = {
+        PositionTransition.OPEN_LONG: [
+            PlannedBrokerAction(
+                action="open_long",
+                order_type="market",
+                side="buy",
+                sizing_basis="configured_notional",
+            )
+        ],
+        PositionTransition.OPEN_SHORT: [
+            PlannedBrokerAction(
+                action="open_short",
+                order_type="market",
+                side="sell",
+                sizing_basis="configured_notional",
+            )
+        ],
+        PositionTransition.CLOSE_LONG: [
+            PlannedBrokerAction(
+                action="close_long",
+                order_type="close_position",
+                side="sell",
+                sizing_basis="current_position",
+            )
+        ],
+        PositionTransition.CLOSE_SHORT: [
+            PlannedBrokerAction(
+                action="close_short",
+                order_type="close_position",
+                side="buy",
+                sizing_basis="current_position",
+            )
+        ],
+        PositionTransition.REVERSE_TO_SHORT: [
+            PlannedBrokerAction(
+                action="close_long",
+                order_type="close_position",
+                side="sell",
+                sizing_basis="current_position",
+            ),
+            PlannedBrokerAction(
+                action="open_short",
+                order_type="market",
+                side="sell",
+                sizing_basis="configured_notional",
+            ),
+        ],
+        PositionTransition.REVERSE_TO_LONG: [
+            PlannedBrokerAction(
+                action="close_short",
+                order_type="close_position",
+                side="buy",
+                sizing_basis="current_position",
+            ),
+            PlannedBrokerAction(
+                action="open_long",
+                order_type="market",
+                side="buy",
+                sizing_basis="configured_notional",
+            ),
+        ],
+    }
+    if transition in (PositionTransition.HOLD_LONG, PositionTransition.HOLD_SHORT, PositionTransition.STAY_NEUTRAL):
+        return [
+            PlannedBrokerAction(
+                action="hold",
+                order_type="none",
+                side=None,
+                sizing_basis="no_order",
+            )
+        ]
+    return action_map.get(transition, [])
+
+
+def _primary_order_intent(planned_actions: list[PlannedBrokerAction], asset_class: str) -> OrderIntent:
+    actionable = [action for action in planned_actions if action.order_type != "none"]
+    if not actionable:
+        return OrderIntent(
+            order_type="none",
+            order_class="simple",
+            side=None,
+            sizing_basis="no_order",
+            time_in_force=None,
+        )
+
+    primary = actionable[-1]
+    time_in_force = "gtc" if asset_class == "crypto" else "day"
+    return OrderIntent(
+        order_type=primary.order_type,
+        order_class="simple",
+        side=primary.side,
+        sizing_basis=primary.sizing_basis,
+        time_in_force=time_in_force,
+    )
+
+
+def build_trade_intent_from_risk_decision(
+    *,
+    symbol: str,
+    trading_mode: str,
+    current_position: str,
+    decision: RiskDecision,
+    allow_shorts: bool = False,
+    trade_date: Optional[str] = None,
+) -> TradeIntent:
+    current = _normalize_position(current_position)
+    target = _target_position(decision.action, trading_mode, current)
+    transition = _position_transition(current, target)
+    planned = _planned_actions(transition)
+    asset_class = "crypto" if "/" in (symbol or "") else "equity"
+
+    warnings: list[str] = []
+    if asset_class == "crypto" and target == TargetPosition.SHORT:
+        warnings.append("Crypto short exposure is not supported by Alpaca spot trading.")
+    if target == TargetPosition.SHORT and not allow_shorts:
+        warnings.append("Short exposure is disabled for this session.")
+
+    if decision.required_controls or decision.stop_loss or decision.take_profit:
+        warnings.append(
+            "Risk controls are captured as advisory metadata; broker protective-order submission is not enabled in this execution path."
+        )
+
+    risk_controls = RiskControls(
+        mode="advisory_only",
+        required_controls=decision.required_controls,
+        stop_loss=decision.stop_loss,
+        take_profit=decision.take_profit,
+        invalidation=decision.invalidation,
+        max_position_size=decision.max_position_size,
+    )
+    constraints = ExecutionConstraints(
+        allow_shorts=allow_shorts,
+        asset_class=asset_class,
+        requires_open_market=asset_class != "crypto",
+        broker_protective_orders_enabled=False,
+        warnings=warnings,
+    )
+
+    return TradeIntent(
+        symbol=symbol,
+        trade_date=trade_date,
+        trading_mode=(trading_mode or "investment").lower(),
+        action=decision.action,
+        current_position=current,
+        target_position=target,
+        position_transition=transition,
+        confidence=decision.confidence,
+        advisory_rating=decision.advisory_rating,
+        order_intent=_primary_order_intent(planned, asset_class),
+        planned_actions=planned,
+        risk_controls=risk_controls,
+        execution_constraints=constraints,
+        rationale_summary=decision.risk_rationale,
+    )

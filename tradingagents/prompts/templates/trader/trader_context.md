@@ -33,7 +33,7 @@ Current Alpaca Position Status:
 Alpaca Account Status:
 {account_status_desc}
 
-Decision Claim Matrix:
+Evidence-Scored Decision Claim Matrix:
 {claim_matrix}
 
 Full Untruncated Analyst Reports:
@@ -48,6 +48,7 @@ Your {decision_format} should be based on:
 - **Stop Loss:** ATR-based or below key swing low/high (1.5-2x ATR)
 - **Position Size:** Calculated from stop distance and max risk per trade
 - **Time Horizon:** Expected 2-10 day hold with daily monitoring
+- **Evidence Quality:** Prefer high-actionability, low-contradiction claim IDs; lower conviction when the scoreboard is mixed.
 
 Always conclude with: {final_format}
 

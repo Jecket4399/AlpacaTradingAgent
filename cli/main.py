@@ -22,6 +22,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.graph.checkpointer import clear_checkpoint
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.run_logger import get_run_audit_logger
+from tradingagents.agents.schemas import trade_intent_action
 from cli.models import AnalystType
 from cli.utils import *
 
@@ -1046,7 +1047,9 @@ def run_analysis():
 
             # Get final state and decision
             final_state = trace[-1]
-            decision = graph.process_signal(final_state["final_trade_decision"])
+            decision = trade_intent_action(final_state.get("final_trade_intent")) or graph.process_signal(
+                final_state["final_trade_decision"]
+            )
             graph.curr_state = final_state
             graph.ticker = selections["ticker"]
             graph._log_state(selections["analysis_date"], final_state)

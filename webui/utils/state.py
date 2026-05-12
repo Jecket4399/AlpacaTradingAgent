@@ -58,6 +58,7 @@ class AppState:
         self.current_reports = {}
         self.investment_debate_state = None
         self.recommended_action = None
+        self.final_trade_intent = None
         self.last_trade_time = None
         self.alpaca_refresh_needed = False
         self.loop_enabled = False
@@ -226,6 +227,8 @@ class AppState:
             "investment_debate_state": None,
             "analysis_complete": False,
             "analysis_results": None,
+            "recommended_action": None,
+            "final_trade_intent": None,
             "ticker_symbol": symbol,
             "chart_data": None,
             "chart_period": "1y",  # Default chart period
@@ -443,6 +446,7 @@ class AppState:
                 },
                 "analysis_results": None,
                 "recommended_action": None,
+                "final_trade_intent": None,
                 "chart_data": state.get("chart_data"),  # Preserve chart data
                 "chart_period": state.get("chart_period", "1y"),  # Preserve chart period
                 # Keep ticker_symbol for pagination
@@ -751,6 +755,10 @@ class AppState:
             self.update_agent_status("Trader", "completed", analyzing_symbol)
             self.update_agent_status("Risky Analyst", "in_progress", analyzing_symbol)
             ui_update_needed = True
+
+        if "final_trade_intent" in chunk and chunk["final_trade_intent"]:
+            state["final_trade_intent"] = chunk["final_trade_intent"]
+            ui_update_needed = True
         
         # Risk debate state
         if "risk_debate_state" in chunk:
@@ -835,7 +843,9 @@ class AppState:
                 # Store extracted recommendation if available
                 if "recommended_action" in chunk:
                     state["recommended_action"] = chunk["recommended_action"]
-                
+                if "final_trade_intent" in chunk and chunk["final_trade_intent"]:
+                    state["final_trade_intent"] = chunk["final_trade_intent"]
+                 
                 # Mark the overall analysis as complete once the Portfolio Manager has delivered the final decision
                 state["analysis_complete"] = True
                 
