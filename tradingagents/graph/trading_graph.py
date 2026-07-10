@@ -135,12 +135,12 @@ class TradingAgentsGraph:
         
         self.toolkit = Toolkit(config=self.config)
 
-        # Initialize memories
-        self.bull_memory = FinancialSituationMemory("bull_memory")
-        self.bear_memory = FinancialSituationMemory("bear_memory")
-        self.trader_memory = FinancialSituationMemory("trader_memory")
-        self.invest_judge_memory = FinancialSituationMemory("invest_judge_memory")
-        self.risk_manager_memory = FinancialSituationMemory("risk_manager_memory")
+        # Initialize memories (persistent when agent_memory_dir is configured)
+        self.bull_memory = FinancialSituationMemory("bull_memory", self.config)
+        self.bear_memory = FinancialSituationMemory("bear_memory", self.config)
+        self.trader_memory = FinancialSituationMemory("trader_memory", self.config)
+        self.invest_judge_memory = FinancialSituationMemory("invest_judge_memory", self.config)
+        self.risk_manager_memory = FinancialSituationMemory("risk_manager_memory", self.config)
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes
@@ -301,6 +301,55 @@ class TradingAgentsGraph:
                 holding_days=holding_days,
                 reflection=reflection,
             )
+            self._reflect_agents_on_outcome(
+                ticker, entry_date_text, raw_return, alpha_return, holding_days
+            )
+
+    def _reflect_agents_on_outcome(
+        self,
+        ticker: str,
+        trade_date: str,
+        raw_return: float,
+        alpha_return: Optional[float],
+        holding_days: int,
+    ) -> None:
+        """Feed a realized outcome back into the per-agent ChromaDB memories.
+
+        Recovers the original run's final_state from the persisted run log,
+        so each agent reflects on the exact situation it saw when the
+        decision was made — not on today's state. Best-effort by design:
+        reflection failures must never affect the current analysis run.
+        """
+        if not self.config.get("reflection_on_outcome_enabled", True):
+            return
+        try:
+            from tradingagents.run_logger import load_final_state_snapshot
+
+            state = load_final_state_snapshot(ticker, trade_date)
+            if not state:
+                return
+            alpha_text = (
+                f"{alpha_return:+.1%} vs benchmark"
+                if alpha_return is not None
+                else "n/a"
+            )
+            returns_losses = (
+                f"Realized return over {holding_days} trading days: "
+                f"{raw_return:+.1%} (alpha: {alpha_text})."
+            )
+            self.reflector.reflect_on_outcome(
+                state,
+                returns_losses,
+                {
+                    "bull": self.bull_memory,
+                    "bear": self.bear_memory,
+                    "trader": self.trader_memory,
+                    "invest_judge": self.invest_judge_memory,
+                    "risk_manager": self.risk_manager_memory,
+                },
+            )
+        except Exception as exc:
+            print(f"[REFLECTION] Outcome reflection skipped for {ticker} {trade_date}: {exc}")
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources."""
