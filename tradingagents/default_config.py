@@ -51,6 +51,11 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 200,
     # Trading settings
     "allow_shorts": False,  # False = Investment mode (BUY/HOLD/SELL), True = Trading mode (LONG/NEUTRAL/SHORT)
+    # Deterministic risk sizing: when enabled, position size for opening trades
+    # is recomputed by tradingagents.risk (fractional Kelly, ATR stops, exposure
+    # caps) with the configured trade amount acting as a hard ceiling.
+    "risk_sizing_enabled": False,
+    "risk_sizing_params": {},  # optional RiskParameters overrides (see tradingagents/risk/position_sizing.py)
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow
