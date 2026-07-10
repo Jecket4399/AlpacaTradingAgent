@@ -15,7 +15,10 @@ from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, QueryOrderS
 from alpaca.common.enums import Sort
 from .config import get_api_key, get_alpaca_use_paper, get_config
 from .ticker_utils import TickerUtils
-from tradingagents.agents.schemas import TradeIntent, trade_intent_action
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tradingagents.agents.schemas import TradeIntent
 
 
 # Fallback dictionary for company names
@@ -227,6 +230,8 @@ def _is_supported_data_fallback_error(error: Exception) -> bool:
             "subscription",
             "permission",
             "unauthorized",
+            # nginx-level 401s arrive as HTML pages with this phrasing
+            "authorization required",
             "forbidden",
             "not found",
             "empty",
@@ -835,7 +840,7 @@ class AlpacaUtils:
     def execute_trade_intent(
         symbol: str,
         current_position: str,
-        trade_intent: Union[TradeIntent, Dict[str, Any]],
+        trade_intent: Union["TradeIntent", Dict[str, Any]],
         dollar_amount: float,
         allow_shorts: bool = False,
     ) -> dict:
@@ -845,6 +850,11 @@ class AlpacaUtils:
         method intentionally delegates to the existing simple market/close
         execution path until bracket/OCO/OTO order placement is implemented.
         """
+        # Imported lazily: a module-level import of the agents package from
+        # here creates a dataflows <-> agents import cycle that breaks
+        # whenever dataflows is imported first.
+        from tradingagents.agents.schemas import TradeIntent, trade_intent_action
+
         try:
             intent = (
                 trade_intent
