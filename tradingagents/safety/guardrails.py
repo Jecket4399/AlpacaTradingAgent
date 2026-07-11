@@ -17,6 +17,7 @@ guard accumulates them per day and can refuse to start new analyses.
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 from dataclasses import dataclass, field
@@ -49,6 +50,22 @@ class SafetyVerdict:
 
 def _today(when: Optional[str] = None) -> str:
     return when or date.today().isoformat()
+
+
+def _finite_float(value) -> Optional[float]:
+    """Parse broker-supplied numbers defensively.
+
+    Outage artifacts show up here as NaN/inf equity or literal HTML error
+    pages in numeric fields. Anything non-finite or unparseable reads as
+    'unavailable' (None): a NaN that reaches a comparison silently passes
+    every breaker, and a NaN stored as the high-water mark disables the
+    drawdown breaker permanently.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 class SafetyGuard:
@@ -192,12 +209,10 @@ class SafetyGuard:
 
         reasons: List[str] = []
         checks: Dict[str, dict] = {}
-        equity = float(account["equity"]) if account and account.get("equity") else None
-        last_equity = (
-            float(account["last_equity"])
-            if account and account.get("last_equity")
-            else None
-        )
+        equity = _finite_float(account.get("equity")) if account else None
+        last_equity = _finite_float(account.get("last_equity")) if account else None
+        if last_equity == 0.0:
+            last_equity = None  # a 0 baseline can't produce a meaningful change %
 
         # Kill switch dominates everything.
         if self.kill_switch_active():
@@ -208,20 +223,21 @@ class SafetyGuard:
             checks["kill_switch"] = {"status": "pass"}
 
         # Pre-trade: per-order notional cap.
+        notional_value = _finite_float(notional) or 0.0
         cap = float(self.config.get("max_trade_notional_usd", 0) or 0)
-        if cap > 0 and float(notional) > cap:
+        if cap > 0 and notional_value > cap:
             reasons.append(
-                f"Order notional ${float(notional):,.2f} exceeds max_trade_notional_usd ${cap:,.2f}."
+                f"Order notional ${notional_value:,.2f} exceeds max_trade_notional_usd ${cap:,.2f}."
             )
-            checks["trade_notional"] = {"status": "fail", "notional": float(notional), "cap": cap}
+            checks["trade_notional"] = {"status": "fail", "notional": notional_value, "cap": cap}
         else:
-            checks["trade_notional"] = {"status": "pass", "notional": float(notional), "cap": cap}
+            checks["trade_notional"] = {"status": "pass", "notional": notional_value, "cap": cap}
 
         # Pre-trade: per-symbol concentration cap.
         conc_pct = float(self.config.get("max_symbol_concentration_pct", 0) or 0)
         if conc_pct > 0:
             if equity:
-                exposure = float(position_value or 0.0) + float(notional)
+                exposure = (_finite_float(position_value) or 0.0) + notional_value
                 limit = equity * conc_pct / 100.0
                 if exposure > limit:
                     reasons.append(
