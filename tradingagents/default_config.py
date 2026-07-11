@@ -51,6 +51,17 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 200,
     # Trading settings
     "allow_shorts": False,  # False = Investment mode (BUY/HOLD/SELL), True = Trading mode (LONG/NEUTRAL/SHORT)
+    # Market regime detection (deterministic, fit-free; filter not signal)
+    "regime_detection_enabled": True,  # Inject regime block into the market report and scale sizing
+    "regime_vol_window": 20,  # Bars for realized-volatility estimate
+    "regime_turbulent_percentile": 75.0,  # Vol percentile above which the regime is turbulent
+    "regime_turbulent_abs_annual_vol_pct": 40.0,  # Absolute annualized-vol floor for turbulence
+    "regime_trend_window": 50,  # SMA window for the trend dimension
+    "regime_thin_liquidity_ratio": 0.7,  # Recent/baseline dollar-volume ratio below this = thinning
+    "regime_turbulent_size_factor": 0.5,  # Size multiplier in turbulent volatility
+    "regime_downtrend_size_factor": 0.75,  # Size multiplier in a downtrend
+    "regime_thin_liquidity_size_factor": 0.85,  # Size multiplier when liquidity is thinning
+    "regime_min_risk_multiplier": 0.25,  # Floor for the combined regime multiplier
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow
