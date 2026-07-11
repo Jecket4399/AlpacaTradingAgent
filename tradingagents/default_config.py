@@ -51,6 +51,14 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 200,
     # Trading settings
     "allow_shorts": False,  # False = Investment mode (BUY/HOLD/SELL), True = Trading mode (LONG/NEUTRAL/SHORT)
+    # Production safety layer (deterministic, independent of agent logic)
+    "safety_enabled": True,  # Master switch for pre-trade checks + circuit breakers + kill switch
+    "max_trade_notional_usd": 25000.0,  # Per-order notional cap; 0 = uncapped
+    "max_symbol_concentration_pct": 25.0,  # Max per-symbol exposure as % of equity; 0 = uncapped
+    "daily_loss_halt_pct": 10.0,  # Circuit breaker: halt trading when equity falls this % vs yesterday
+    "max_drawdown_halt_pct": 15.0,  # Circuit breaker: halt when equity falls this % below the high-water mark
+    "max_consecutive_rejections": 5,  # Circuit breaker: halt after this many broker rejections in a row
+    "daily_llm_token_budget": 0,  # Refuse new analyses after this many LLM tokens per day; 0 = unlimited
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow

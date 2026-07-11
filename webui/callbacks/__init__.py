@@ -10,6 +10,7 @@ from .control_callbacks import register_control_callbacks
 from .trading_callbacks import register_trading_callbacks
 from .storage_callbacks import register_storage_callbacks
 from .api_config_callbacks import register_api_config_callbacks
+from .safety_callbacks import register_safety_callbacks
 
 def register_all_callbacks(app):
     """Register all callback functions with the Dash app"""
@@ -19,4 +20,5 @@ def register_all_callbacks(app):
     register_control_callbacks(app)
     register_trading_callbacks(app)
     register_storage_callbacks(app)
-    register_api_config_callbacks(app) 
+    register_api_config_callbacks(app)
+    register_safety_callbacks(app)

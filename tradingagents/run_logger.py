@@ -233,9 +233,17 @@ class RunAuditLogger:
                 run_data["summary"]["total_llm_output_tokens"] += int(
                     usage.get("output_tokens", 0) or 0
                 )
-                run_data["summary"]["total_llm_tokens"] += int(
-                    usage.get("total_tokens", 0) or 0
-                )
+                total_tokens = int(usage.get("total_tokens", 0) or 0)
+                run_data["summary"]["total_llm_tokens"] += total_tokens
+                if total_tokens:
+                    # Feed the safety layer's daily LLM token budget; logging
+                    # must never fail because the guard is unavailable.
+                    try:
+                        from tradingagents.safety import get_safety_guard
+
+                        get_safety_guard().record_llm_tokens(total_tokens)
+                    except Exception:
+                        pass
             elif event_type == "agent_output":
                 run_data["summary"]["agent_output_events"] += 1
             elif event_type == "node_execution":
