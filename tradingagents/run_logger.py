@@ -389,6 +389,49 @@ class RunAuditLogger:
             json.dump(run_data, f, indent=2, ensure_ascii=False)
 
 
+def load_final_state_snapshot(
+    symbol: str,
+    trade_date: str,
+    eval_results_dir: str = "eval_results",
+) -> Optional[Dict[str, Any]]:
+    """Return the final_state snapshot of the newest completed run for a date.
+
+    Lets outcome-time consumers (reflection, evaluation) recover the exact
+    market situation a past decision was made in, without keeping every run
+    in process memory. Returns None when no matching completed run exists.
+    """
+    runs_dir = (
+        Path(eval_results_dir)
+        / _sanitize_for_path(symbol or "unknown")
+        / "TradingAgentsStrategy_logs"
+        / "runs"
+    )
+    if not runs_dir.is_dir():
+        return None
+
+    best_payload = None
+    best_started_at = ""
+    for path in runs_dir.glob("*.json"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            continue
+        if payload.get("status") != "completed":
+            continue
+        if str(payload.get("trade_date")) != str(trade_date):
+            continue
+        final_state = (payload.get("snapshots") or {}).get("final_state")
+        if not isinstance(final_state, dict):
+            continue
+        started_at = str(payload.get("started_at") or "")
+        if started_at >= best_started_at:
+            best_started_at = started_at
+            best_payload = final_state
+
+    return best_payload
+
+
 _RUN_AUDIT_LOGGER = RunAuditLogger()
 
 

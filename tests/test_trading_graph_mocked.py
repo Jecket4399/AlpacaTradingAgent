@@ -67,7 +67,9 @@ def _final_state(ticker, trade_date):
 
 class MockedTradingGraphTests(unittest.TestCase):
     def test_propagate_preserves_macro_and_safe_paths_with_checkpoint(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # ignore_cleanup_errors: chromadb holds its store files open on
+        # Windows, so temp-dir removal can race the process handle.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             tmp_path = Path(tmp)
             for ticker, safe_ticker in (("AAPL", "AAPL"), ("BTC/USD", "BTC_USD")):
                 with self.subTest(ticker=ticker):
@@ -81,6 +83,7 @@ class MockedTradingGraphTests(unittest.TestCase):
                             "data_cache_dir": str(tmp_path / f"cache-{safe_ticker}"),
                             "results_dir": str(tmp_path / "results"),
                             "memory_log_path": str(tmp_path / f"memory-{safe_ticker}.md"),
+                            "agent_memory_dir": str(tmp_path / f"agent-memory-{safe_ticker}"),
                             "checkpoint_enabled": True,
                         }
                     )
@@ -113,7 +116,9 @@ class MockedTradingGraphTests(unittest.TestCase):
         ]
 
         for provider, provider_config, expected_key, expected_value in cases:
-            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as tmp:
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory(
+                ignore_cleanup_errors=True
+            ) as tmp:
                 calls = []
 
                 def fake_create_llm_client(**kwargs):
@@ -129,6 +134,7 @@ class MockedTradingGraphTests(unittest.TestCase):
                         "data_cache_dir": str(Path(tmp) / "cache"),
                         "results_dir": str(Path(tmp) / "results"),
                         "memory_log_path": str(Path(tmp) / "memory.md"),
+                        "agent_memory_dir": str(Path(tmp) / "agent-memory"),
                         **provider_config,
                     }
                 )
