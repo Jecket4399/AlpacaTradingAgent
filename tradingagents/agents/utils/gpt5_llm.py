@@ -1,6 +1,7 @@
 """Custom LangChain wrapper for OpenAI reasoning models using Responses API."""
 
 from typing import Any, Dict, List, Optional
+from pydantic import ConfigDict
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatResult, ChatGeneration
@@ -55,10 +56,9 @@ class GPT5ChatModel(BaseChatModel):
     
     # Internal client - not a pydantic field
     _client: Optional[OpenAI] = None
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Initialize the OpenAI client
