@@ -90,7 +90,11 @@ class StructuredDecisionTests(unittest.TestCase):
         self.assertEqual(intent.position_transition, PositionTransition.OPEN_LONG)
         self.assertEqual(intent.order_intent.side, "buy")
         self.assertEqual(intent.risk_controls.mode, "advisory_only")
-        self.assertIn("protective-order", " ".join(intent.execution_constraints.warnings))
+        # Numeric protective levels are extracted so execution can submit
+        # real bracket orders instead of leaving controls advisory.
+        self.assertEqual(intent.risk_controls.stop_loss_price, 182.50)
+        self.assertEqual(intent.risk_controls.take_profit_price, 195.0)
+        self.assertTrue(intent.execution_constraints.broker_protective_orders_enabled)
         self.assertEqual(trade_intent_action(intent.model_dump(mode="json")), "BUY")
 
     def test_alpaca_execution_prefers_validated_trade_intent(self):

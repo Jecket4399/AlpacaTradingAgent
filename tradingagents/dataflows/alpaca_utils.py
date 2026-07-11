@@ -10,8 +10,15 @@ from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, StockLates
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.enums import DataFeed
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetAssetsRequest, GetOrdersRequest, MarketOrderRequest, ClosePositionRequest
-from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetAssetsRequest,
+    GetOrdersRequest,
+    MarketOrderRequest,
+    ClosePositionRequest,
+    StopLossRequest,
+    TakeProfitRequest,
+)
+from alpaca.trading.enums import AssetClass, AssetStatus, OrderClass, OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.common.enums import Sort
 from .config import get_api_key, get_alpaca_use_paper, get_config
 from .ticker_utils import TickerUtils
@@ -788,6 +795,77 @@ class AlpacaUtils:
             return {"success": False, "error": error_msg}
 
     @staticmethod
+    def place_protected_market_order(
+        symbol: str,
+        side: str,
+        qty: float,
+        stop_loss_price: float = None,
+        take_profit_price: float = None,
+    ) -> dict:
+        """Place a market order with broker-side protective child orders.
+
+        Uses order_class=bracket when both a stop and a target are given, and
+        order_class=oto for a single protective leg.  Equities only: Alpaca
+        does not support bracket/OTO orders for crypto, and protective legs
+        require a whole-share quantity (no notional sizing).  Time in force is
+        GTC so the protective legs survive past the trading day.
+        """
+        try:
+            if not stop_loss_price and not take_profit_price:
+                return {"success": False, "error": "No protective price supplied"}
+
+            client = get_alpaca_trading_client()
+            alpaca_symbol = symbol.upper().replace("/", "")
+            order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+
+            stop_loss = (
+                StopLossRequest(stop_price=round(float(stop_loss_price), 2))
+                if stop_loss_price
+                else None
+            )
+            take_profit = (
+                TakeProfitRequest(limit_price=round(float(take_profit_price), 2))
+                if take_profit_price
+                else None
+            )
+            order_class = (
+                OrderClass.BRACKET if (stop_loss and take_profit) else OrderClass.OTO
+            )
+
+            order_request = MarketOrderRequest(
+                symbol=alpaca_symbol,
+                side=order_side,
+                time_in_force=TimeInForce.GTC,
+                qty=int(qty),
+                order_class=order_class,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+            order = client.submit_order(order_request)
+
+            return {
+                "success": True,
+                "order_id": order.id,
+                "symbol": order.symbol,
+                "side": order.side,
+                "qty": float(order.qty) if order.qty else None,
+                "status": order.status,
+                "order_class": "bracket" if order_class == OrderClass.BRACKET else "oto",
+                "stop_loss_price": float(stop_loss.stop_price) if stop_loss else None,
+                "take_profit_price": float(take_profit.limit_price) if take_profit else None,
+                "message": (
+                    f"Placed {side} {order_class.value} order for {symbol} "
+                    f"(stop={stop_loss.stop_price if stop_loss else None}, "
+                    f"target={take_profit.limit_price if take_profit else None})"
+                ),
+            }
+
+        except Exception as e:
+            error_msg = f"Error placing protected {side} order for {symbol}: {e}"
+            print(error_msg)
+            return {"success": False, "error": error_msg}
+
+    @staticmethod
     def close_position(symbol: str, percentage: float = 100.0) -> dict:
         """
         Close a position (partially or completely)
@@ -902,31 +980,98 @@ class AlpacaUtils:
             warnings.append(
                 f"Intent was generated with {intent.current_position.value} position; live position is {current_position}."
             )
-        if (
-            intent.risk_controls.mode == "advisory_only"
-            and (
-                intent.risk_controls.required_controls
-                or intent.risk_controls.stop_loss
-                or intent.risk_controls.take_profit
-            )
-        ):
-            warnings.append("Broker stop-loss/take-profit orders were not submitted; controls remain advisory.")
 
-        result = AlpacaUtils.execute_trading_action(
+        protective_prices = AlpacaUtils._resolve_protective_prices(
+            intent, signal, is_crypto, warnings
+        )
+
+        execute_kwargs = dict(
             symbol=symbol,
             current_position=current_position,
             signal=signal,
             dollar_amount=dollar_amount,
             allow_shorts=allow_shorts,
         )
+        if protective_prices:
+            execute_kwargs["protective_prices"] = protective_prices
+
+        result = AlpacaUtils.execute_trading_action(**execute_kwargs)
         result["trade_intent"] = intent.model_dump(mode="json")
+
+        protective_status = "advisory_only"
+        for action in result.get("actions", []):
+            action_result = action.get("result") or {}
+            if action_result.get("order_class") == "bracket":
+                protective_status = "submitted_bracket"
+            elif action_result.get("order_class") == "oto":
+                protective_status = "submitted_oto"
+            elif action_result.get("protective_fallback"):
+                protective_status = "bracket_rejected_fallback_plain"
+                warnings.append(
+                    "Protective order submission was rejected by the broker; "
+                    f"entered with a plain market order instead ({action_result.get('protective_error')})."
+                )
+        if protective_status == "advisory_only" and (
+            intent.risk_controls.required_controls
+            or intent.risk_controls.stop_loss
+            or intent.risk_controls.take_profit
+        ):
+            warnings.append("Broker stop-loss/take-profit orders were not submitted; controls remain advisory.")
+
         result["intent_warnings"] = warnings
-        result["protective_order_status"] = "advisory_only"
+        result["protective_order_status"] = protective_status
         return result
 
     @staticmethod
-    def execute_trading_action(symbol: str, current_position: str, signal: str, 
-                             dollar_amount: float, allow_shorts: bool = False) -> dict:
+    def _resolve_protective_prices(intent, signal, is_crypto, warnings):
+        """Decide which protective price levels can be submitted to the broker.
+
+        Returns a dict for place_protected_market_order, or None when the
+        intent must stay advisory (no numeric levels, crypto asset, disabled
+        by config, non-opening action, or inconsistent levels).
+        """
+        from tradingagents.agents.schemas import extract_protective_price
+
+        controls = intent.risk_controls
+        stop_price = controls.stop_loss_price or extract_protective_price(controls.stop_loss)
+        target_price = controls.take_profit_price or extract_protective_price(controls.take_profit)
+        if not stop_price and not target_price:
+            return None
+
+        opening_long = signal in {"BUY", "LONG"}
+        opening_short = signal == "SHORT"
+        if not opening_long and not opening_short:
+            return None  # closes/holds carry nothing to protect
+
+        if is_crypto:
+            warnings.append(
+                "Protective bracket/OTO orders are not supported for crypto assets; controls remain advisory."
+            )
+            return None
+
+        if not get_config().get("protective_bracket_orders_enabled", True):
+            warnings.append(
+                "Protective bracket orders are disabled by configuration; controls remain advisory."
+            )
+            return None
+
+        if stop_price and target_price:
+            inverted = (opening_long and stop_price >= target_price) or (
+                opening_short and target_price >= stop_price
+            )
+            if inverted:
+                warnings.append(
+                    f"Protective prices are inconsistent for a {'long' if opening_long else 'short'} entry "
+                    f"(stop={stop_price}, target={target_price}); controls remain advisory."
+                )
+                return None
+
+        return {"stop_loss_price": stop_price, "take_profit_price": target_price}
+
+    @staticmethod
+    def execute_trading_action(symbol: str, current_position: str, signal: str,
+                             dollar_amount: float, allow_shorts: bool = False,
+                             protective_prices: Optional[Dict[str, float]] = None) -> dict:
         """
         Execute trading action based on current position and signal
         
@@ -957,7 +1102,35 @@ class AlpacaUtils:
                 except Exception:
                     # Fallback: at least 1 share
                     return 1
-            
+
+            def _open_position(sym: str, side: str, amount: float) -> dict:
+                """Open a position, attaching broker protective orders when available.
+
+                Falls back to a plain market order if the protected submission is
+                rejected, so a broker-side validation error never blocks the entry
+                the agents decided on (matching previous behaviour).
+                """
+                is_crypto_sym = "/" in sym.upper()
+                if not is_crypto_sym and protective_prices:
+                    qty_int = _calc_qty(sym, amount)
+                    protected = AlpacaUtils.place_protected_market_order(
+                        sym,
+                        side,
+                        qty_int,
+                        stop_loss_price=protective_prices.get("stop_loss_price"),
+                        take_profit_price=protective_prices.get("take_profit_price"),
+                    )
+                    if protected.get("success"):
+                        return protected
+                    fallback = AlpacaUtils.place_market_order(sym, side, qty=qty_int)
+                    fallback["protective_fallback"] = True
+                    fallback["protective_error"] = protected.get("error")
+                    return fallback
+                if is_crypto_sym and side == "buy":
+                    # Crypto buys use exact notional sizing (no bracket support).
+                    return AlpacaUtils.place_market_order(sym, side, notional=amount)
+                return AlpacaUtils.place_market_order(sym, side, qty=_calc_qty(sym, amount))
+
             if allow_shorts:
                 # Trading mode: LONG/NEUTRAL/SHORT signals
                 signal = signal.upper()
@@ -980,9 +1153,7 @@ class AlpacaUtils:
                                 error_msg = f"Direct short selling not supported for crypto assets like {symbol}. Position closed but short not opened."
                                 results.append({"action": "open_short", "result": {"success": False, "error": error_msg}})
                             else:
-                                # Calculate integer quantity for short (fractional shares cannot be shorted)
-                                qty_int = _calc_qty(symbol, dollar_amount)
-                                short_result = AlpacaUtils.place_market_order(symbol, "sell", qty=qty_int)
+                                short_result = _open_position(symbol, "sell", dollar_amount)
                                 results.append({"action": "open_short", "result": short_result})
                 
                 elif current_position == "SHORT":
@@ -997,28 +1168,12 @@ class AlpacaUtils:
                         close_result = AlpacaUtils.close_position(symbol)
                         results.append({"action": "close_short", "result": close_result})
                         if close_result.get("success"):
-                            # Open LONG position - use notional amount for crypto, quantity for stocks
-                            is_crypto = "/" in symbol.upper()
-                            if is_crypto:
-                                # For crypto, use exact dollar amount (notional)
-                                long_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
-                            else:
-                                # For stocks, calculate quantity
-                                qty_int = _calc_qty(symbol, dollar_amount)
-                                long_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
+                            long_result = _open_position(symbol, "buy", dollar_amount)
                             results.append({"action": "open_long", "result": long_result})
                 
                 elif current_position == "NEUTRAL":
                     if signal == "LONG":
-                        # Open LONG position - use notional amount for crypto, quantity for stocks
-                        is_crypto = "/" in symbol.upper()
-                        if is_crypto:
-                            # For crypto, use exact dollar amount (notional)
-                            long_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
-                        else:
-                            # For stocks, calculate quantity
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            long_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
+                        long_result = _open_position(symbol, "buy", dollar_amount)
                         results.append({"action": "open_long", "result": long_result})
                     elif signal == "SHORT":
                         # Check if this is crypto - Alpaca doesn't support crypto short selling directly
@@ -1027,9 +1182,7 @@ class AlpacaUtils:
                             error_msg = f"Direct short selling not supported for crypto assets like {symbol}. Consider using derivatives or margin trading platforms."
                             results.append({"action": "open_short", "result": {"success": False, "error": error_msg}})
                         else:
-                            # For stocks, attempt short selling
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            short_result = AlpacaUtils.place_market_order(symbol, "sell", qty=qty_int)
+                            short_result = _open_position(symbol, "sell", dollar_amount)
                             results.append({"action": "open_short", "result": short_result})
                     elif signal == "NEUTRAL":
                         results.append({"action": "hold", "message": f"No position needed for {symbol}"})
@@ -1043,15 +1196,7 @@ class AlpacaUtils:
                     if has_position:
                         results.append({"action": "hold", "message": f"Already have position in {symbol}"})
                     else:
-                        # Buy position - use notional amount for crypto, quantity for stocks
-                        is_crypto = "/" in symbol.upper()
-                        if is_crypto:
-                            # For crypto, use exact dollar amount (notional)
-                            buy_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
-                        else:
-                            # For stocks, calculate quantity
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            buy_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
+                        buy_result = _open_position(symbol, "buy", dollar_amount)
                         results.append({"action": "buy", "result": buy_result})
                 
                 elif signal == "SELL":

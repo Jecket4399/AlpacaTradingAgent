@@ -6,11 +6,39 @@ The upstream 5-tier rating is advisory metadata only.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+_PRICE_PATTERN = re.compile(r"\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?")
+
+
+def extract_protective_price(guidance: Optional[str]) -> Optional[float]:
+    """Extract the first absolute price level from free-text risk guidance.
+
+    Returns None for qualitative guidance ("below support"), relative values
+    ("8% below entry"), or empty input — a protective order must never be
+    submitted from a level we are not sure about.
+    """
+    if not guidance:
+        return None
+    match = _PRICE_PATTERN.search(guidance)
+    if not match:
+        return None
+    # Percentages are relative to an unknown entry price, not price levels.
+    tail = guidance[match.end():].lstrip()
+    if tail.startswith("%") or tail.lower().startswith("percent"):
+        return None
+    whole = match.group(1).replace(",", "")
+    fraction = match.group(2) or "0"
+    try:
+        price = float(f"{whole}.{fraction}")
+    except ValueError:
+        return None
+    return price if price > 0 else None
 
 
 class AdvisoryRating(str, Enum):
@@ -64,6 +92,14 @@ class RiskControls(BaseModel):
     required_controls: Optional[str] = Field(default=None, description="Full risk-control guidance from the risk manager.")
     stop_loss: Optional[str] = Field(default=None, description="Stop-loss or invalidation guidance.")
     take_profit: Optional[str] = Field(default=None, description="Take-profit or target guidance.")
+    stop_loss_price: Optional[float] = Field(
+        default=None,
+        description="Absolute stop-loss price level for broker protective orders, when known.",
+    )
+    take_profit_price: Optional[float] = Field(
+        default=None,
+        description="Absolute take-profit price level for broker protective orders, when known.",
+    )
     invalidation: Optional[str] = Field(default=None, description="Setup invalidation guidance.")
     max_position_size: Optional[str] = Field(default=None, description="Position-size or max exposure guidance.")
 
@@ -386,9 +422,12 @@ def build_trade_intent_from_risk_decision(
     if target == TargetPosition.SHORT and not allow_shorts:
         warnings.append("Short exposure is disabled for this session.")
 
-    if decision.required_controls or decision.stop_loss or decision.take_profit:
+    stop_loss_price = extract_protective_price(decision.stop_loss)
+    take_profit_price = extract_protective_price(decision.take_profit)
+    has_numeric_controls = bool(stop_loss_price or take_profit_price)
+    if (decision.required_controls or decision.stop_loss or decision.take_profit) and not has_numeric_controls:
         warnings.append(
-            "Risk controls are captured as advisory metadata; broker protective-order submission is not enabled in this execution path."
+            "Risk controls carry no absolute protective-order price levels; they remain advisory metadata."
         )
 
     risk_controls = RiskControls(
@@ -396,6 +435,8 @@ def build_trade_intent_from_risk_decision(
         required_controls=decision.required_controls,
         stop_loss=decision.stop_loss,
         take_profit=decision.take_profit,
+        stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price,
         invalidation=decision.invalidation,
         max_position_size=decision.max_position_size,
     )
@@ -403,7 +444,7 @@ def build_trade_intent_from_risk_decision(
         allow_shorts=allow_shorts,
         asset_class=asset_class,
         requires_open_market=asset_class != "crypto",
-        broker_protective_orders_enabled=False,
+        broker_protective_orders_enabled=has_numeric_controls and asset_class != "crypto",
         warnings=warnings,
     )
 
