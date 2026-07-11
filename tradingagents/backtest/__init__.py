@@ -28,6 +28,11 @@ from .metrics import (
     win_rate,
 )
 from .signals import ACTION_ALIASES, load_recorded_signals, normalize_action
+from .teach import (
+    compute_decision_outcomes,
+    default_agent_memories,
+    teach_memories_from_history,
+)
 
 __all__ = [
     "ACTION_ALIASES",
@@ -36,7 +41,9 @@ __all__ = [
     "TRADING_DAYS_PER_YEAR",
     "WalkForwardResult",
     "annualized_return",
+    "compute_decision_outcomes",
     "cumulative_return",
+    "default_agent_memories",
     "load_recorded_signals",
     "max_drawdown",
     "normalize_action",
@@ -47,5 +54,6 @@ __all__ = [
     "run_walk_forward",
     "sharpe_ratio",
     "summarize_performance",
+    "teach_memories_from_history",
     "win_rate",
 ]

@@ -222,3 +222,61 @@ def register_backtest_callbacks(app):
         figure = _build_equity_figure(full.equity_curve, symbol)
         windows_table = _build_windows_table(result.windows)
         return status, metrics_cards, figure, {"display": "block"}, windows_table
+
+    @app.callback(
+        Output("backtest-teach-status", "children"),
+        Input("backtest-teach-btn", "n_clicks"),
+        [
+            State("backtest-symbol-input", "value"),
+            State("backtest-start-date", "value"),
+            State("backtest-end-date", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def teach_memory_callback(n_clicks, symbol, start_date, end_date):
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            return dbc.Alert(
+                "Enter a symbol to teach from.", color="warning", className="mb-0"
+            )
+
+        try:
+            from tradingagents.backtest import (
+                default_agent_memories,
+                teach_memories_from_history,
+            )
+
+            summary = teach_memories_from_history(
+                symbol,
+                default_agent_memories(),
+                start_date=start_date or None,
+                end_date=end_date or None,
+            )
+        except ValueError as e:
+            return dbc.Alert(str(e), color="warning", className="mb-0")
+        except Exception as e:
+            return dbc.Alert(f"Teaching failed: {e}", color="danger", className="mb-0")
+
+        taught = summary["decisions_taught"]
+        if not taught and summary["decisions_skipped_duplicate"]:
+            text = (
+                f"Nothing new to teach for {symbol}: "
+                f"{summary['decisions_skipped_duplicate']} decision(s) already in memory."
+            )
+            return dbc.Alert(text, color="info", className="mb-0")
+        if not taught:
+            text = (
+                f"No teachable decisions for {symbol} "
+                f"({summary['outcomes_computed']} outcome(s) computed, "
+                f"{summary['decisions_skipped_no_state']} without a recorded final state; "
+                "teaching also requires OpenAI embeddings)."
+            )
+            return dbc.Alert(text, color="warning", className="mb-0")
+
+        text = (
+            f"Taught {taught} decision(s) for {symbol} — "
+            f"{summary['lessons_written']} lesson(s) written to the agent memories "
+            f"({summary['decisions_skipped_duplicate']} duplicate(s) skipped, "
+            f"{summary['decisions_skipped_no_state']} without final state)."
+        )
+        return dbc.Alert(text, color="success", className="mb-0")

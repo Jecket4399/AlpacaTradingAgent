@@ -17,6 +17,8 @@ class BacktestPanelWiringTests(unittest.TestCase):
             "backtest-equity-graph",
             "backtest-windows-table",
             "backtest-slippage-model",
+            "backtest-teach-btn",
+            "backtest-teach-status",
         ):
             self.assertIn(component_id, rendered)
 
@@ -31,6 +33,10 @@ class BacktestPanelWiringTests(unittest.TestCase):
         self.assertTrue(
             any("backtest-status" in key for key in app.callback_map),
             f"backtest callback missing from callback map: {list(app.callback_map)}",
+        )
+        self.assertTrue(
+            any("backtest-teach-status" in key for key in app.callback_map),
+            f"teach callback missing from callback map: {list(app.callback_map)}",
         )
 
     def test_metric_formatting_helpers(self):

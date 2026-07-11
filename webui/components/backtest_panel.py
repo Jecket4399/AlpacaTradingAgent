@@ -96,6 +96,30 @@ def create_backtest_panel():
         className="g-2 align-items-end mb-3",
     )
 
+    teach_row = dbc.Row(
+        [
+            dbc.Col(
+                dbc.Button(
+                    [html.I(className="fas fa-graduation-cap me-2"), "Teach Memory"],
+                    id="backtest-teach-btn",
+                    color="secondary",
+                    outline=True,
+                    size="sm",
+                ),
+                width="auto",
+            ),
+            dbc.Col(
+                html.Div(
+                    "Injects one dated lesson per recorded decision (with its "
+                    "realized next-open return) into the persistent agent "
+                    "memories — idempotent, zero LLM cost.",
+                    className="text-muted small",
+                ),
+            ),
+        ],
+        className="g-2 align-items-center mb-2",
+    )
+
     return dbc.Card(
         dbc.CardBody(
             [
@@ -106,6 +130,12 @@ def create_backtest_panel():
                     className="text-muted small mb-3",
                 ),
                 controls,
+                teach_row,
+                dcc.Loading(
+                    id="backtest-teach-loading",
+                    type="default",
+                    children=html.Div(id="backtest-teach-status", className="mb-2"),
+                ),
                 dcc.Loading(
                     id="backtest-loading",
                     type="default",
