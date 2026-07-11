@@ -59,6 +59,12 @@ DEFAULT_CONFIG = {
     "max_drawdown_halt_pct": 15.0,  # Circuit breaker: halt when equity falls this % below the high-water mark
     "max_consecutive_rejections": 5,  # Circuit breaker: halt after this many broker rejections in a row
     "daily_llm_token_budget": 0,  # Refuse new analyses after this many LLM tokens per day; 0 = unlimited
+    # Operational alerts (Telegram / webhook; stdlib-only, failure-isolated)
+    "alerts_enabled": True,  # Master switch; channels below must also be configured
+    "alert_telegram_bot_token": None,  # Or env ALERT_TELEGRAM_BOT_TOKEN
+    "alert_telegram_chat_id": None,  # Or env ALERT_TELEGRAM_CHAT_ID
+    "alert_webhook_url": None,  # Generic JSON webhook; or env ALERT_WEBHOOK_URL
+    "alert_cooldown_seconds": 900,  # Identical alerts suppressed within this window
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow

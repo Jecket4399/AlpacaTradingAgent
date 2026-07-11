@@ -113,6 +113,14 @@ class SafetyGuard:
         self.kill_switch_path.parent.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).isoformat()
         self.kill_switch_path.write_text(f"{reason} (engaged {stamp})", encoding="utf-8")
+        # Ops alert; imported lazily and failure-isolated so the safety
+        # layer keeps zero hard dependencies.
+        try:
+            from tradingagents.alerts import notify_kill_switch
+
+            notify_kill_switch(reason)
+        except Exception:
+            pass
 
     def release_kill_switch(self) -> None:
         try:
