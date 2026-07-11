@@ -241,6 +241,7 @@ class RunBacktestTests(unittest.TestCase):
             initial_cash=10_000,
             commission=0.0,
             position_pct=0.4,
+            slippage_bps=0.0,  # this test isolates lookahead, not costs
         )
         self.assertEqual(result.orders[0]["date"], "2026-01-06")
         self.assertAlmostEqual(result.orders[0]["price"], 200.0)
@@ -316,6 +317,108 @@ class RunBacktestTests(unittest.TestCase):
         result = run_backtest(prices, {"2026-01-05": "BUY"})
         payload = json.dumps(result.to_dict())
         self.assertIn("cumulative_return", payload)
+
+
+class SlippageTests(unittest.TestCase):
+    """Execution-cost realism: fills must be able to model slippage.
+
+    A zero-slippage assumption systematically inflates backtest results, so
+    a fixed basis-point model is on by default and a volatility-scaled model
+    is available for less liquid / more volatile symbols.
+    """
+
+    BUY = {"2026-01-05": "BUY"}
+
+    def test_fixed_bps_slippage_raises_buy_fill_price(self):
+        prices = make_prices([100] * 6)
+        result = run_backtest(
+            prices, self.BUY, initial_cash=10_000, commission=0.0, slippage_bps=50.0
+        )
+        # 50 bps over the 100.0 next-bar open.
+        self.assertAlmostEqual(result.orders[0]["price"], 100.5)
+
+    def test_zero_bps_fills_exactly_at_open(self):
+        prices = make_prices([100] * 6)
+        result = run_backtest(
+            prices, self.BUY, initial_cash=10_000, commission=0.0, slippage_bps=0.0
+        )
+        self.assertAlmostEqual(result.orders[0]["price"], 100.0)
+
+    def test_slippage_is_on_by_default(self):
+        prices = make_prices([100] * 6)
+        default = run_backtest(prices, self.BUY, initial_cash=10_000, commission=0.0)
+        self.assertGreater(default.orders[0]["price"], 100.0)
+
+    def test_sell_fill_price_slips_down(self):
+        prices = make_prices([100] * 8)
+        signals = {"2026-01-05": "BUY", "2026-01-08": "SELL"}
+        result = run_backtest(
+            prices, signals, initial_cash=10_000, commission=0.0, slippage_bps=50.0
+        )
+        sells = [o for o in result.orders if o["side"] == "sell"]
+        self.assertAlmostEqual(sells[0]["price"], 99.5)
+
+    def test_slippage_reduces_round_trip_equity(self):
+        prices = make_prices([100] * 8)
+        signals = {"2026-01-05": "BUY", "2026-01-08": "SELL"}
+        free = run_backtest(
+            prices, signals, initial_cash=10_000, commission=0.0, slippage_bps=0.0
+        )
+        slipped = run_backtest(
+            prices, signals, initial_cash=10_000, commission=0.0, slippage_bps=50.0
+        )
+        self.assertLess(slipped.equity_curve.iloc[-1], free.equity_curve.iloc[-1])
+
+    def test_volatility_model_scales_with_previous_bar_range(self):
+        # make_prices gives every bar high=101/low=99/close=100, so the
+        # previous-bar range fraction is 2%; with vol_fraction=0.1 the buy
+        # slips by 20 bps over the 100.0 open.
+        prices = make_prices([100] * 6)
+        result = run_backtest(
+            prices,
+            self.BUY,
+            initial_cash=10_000,
+            commission=0.0,
+            slippage_model="volatility",
+            slippage_vol_fraction=0.1,
+        )
+        self.assertAlmostEqual(result.orders[0]["price"], 100.2)
+
+    def test_volatility_model_respects_max_cap(self):
+        prices = make_prices([100] * 6)
+        result = run_backtest(
+            prices,
+            self.BUY,
+            initial_cash=10_000,
+            commission=0.0,
+            slippage_model="volatility",
+            slippage_vol_fraction=0.1,
+            slippage_max_bps=5.0,
+        )
+        self.assertAlmostEqual(result.orders[0]["price"], 100.05)
+
+    def test_none_model_disables_slippage(self):
+        prices = make_prices([100] * 6)
+        result = run_backtest(
+            prices,
+            self.BUY,
+            initial_cash=10_000,
+            commission=0.0,
+            slippage_model="none",
+            slippage_bps=50.0,
+        )
+        self.assertAlmostEqual(result.orders[0]["price"], 100.0)
+
+    def test_unknown_model_raises(self):
+        prices = make_prices([100] * 6)
+        with self.assertRaises(ValueError):
+            run_backtest(prices, self.BUY, slippage_model="quantum")
+
+    def test_result_reports_slippage_config(self):
+        prices = make_prices([100] * 6)
+        result = run_backtest(prices, self.BUY, slippage_bps=7.5)
+        self.assertEqual(result.to_dict()["slippage"]["model"], "fixed")
+        self.assertAlmostEqual(result.to_dict()["slippage"]["bps"], 7.5)
 
 
 class WalkForwardTests(unittest.TestCase):

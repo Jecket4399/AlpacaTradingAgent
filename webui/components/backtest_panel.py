@@ -25,7 +25,7 @@ def create_backtest_panel():
                         debounce=True,
                     ),
                 ],
-                md=3,
+                md=2,
             ),
             dbc.Col(
                 [
@@ -50,6 +50,21 @@ def create_backtest_panel():
                         value=63,
                         min=2,
                         step=1,
+                    ),
+                ],
+                md=1,
+            ),
+            dbc.Col(
+                [
+                    dbc.Label("Slippage", html_for="backtest-slippage-model", className="small"),
+                    dbc.Select(
+                        id="backtest-slippage-model",
+                        options=[
+                            {"label": "Fixed (5 bps)", "value": "fixed"},
+                            {"label": "Volatility-scaled", "value": "volatility"},
+                            {"label": "None (frictionless)", "value": "none"},
+                        ],
+                        value="fixed",
                     ),
                 ],
                 md=2,

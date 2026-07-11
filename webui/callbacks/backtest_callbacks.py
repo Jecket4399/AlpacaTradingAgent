@@ -170,10 +170,11 @@ def register_backtest_callbacks(app):
             State("backtest-end-date", "value"),
             State("backtest-window-bars", "value"),
             State("backtest-allow-shorts", "value"),
+            State("backtest-slippage-model", "value"),
         ],
         prevent_initial_call=True,
     )
-    def run_backtest_callback(n_clicks, symbol, start_date, end_date, window_bars, allow_shorts):
+    def run_backtest_callback(n_clicks, symbol, start_date, end_date, window_bars, allow_shorts, slippage_model):
         hidden = {"display": "none"}
         empty = go.Figure()
 
@@ -191,6 +192,7 @@ def register_backtest_callbacks(app):
                 end_date=end_date or None,
                 window_bars=int(window_bars or 63),
                 allow_shorts=bool(allow_shorts),
+                slippage_model=slippage_model or "fixed",
             )
         except ValueError as e:
             alert = dbc.Alert(str(e), color="warning", className="mb-0")
@@ -200,10 +202,17 @@ def register_backtest_callbacks(app):
             return alert, None, empty, hidden, None
 
         full = result.full_period
+        slippage = full.slippage or {}
+        slippage_text = {
+            "fixed": f"slippage: {slippage.get('bps', 0):g} bps",
+            "volatility": "slippage: volatility-scaled",
+            "none": "slippage: none",
+        }.get(slippage.get("model"), "slippage: n/a")
         status_bits = [
             f"{full.start_date} → {full.end_date}",
             f"{full.signals_used} recorded signal(s)",
             "execution: next-bar open",
+            slippage_text,
         ]
         if full.rejected_orders:
             status_bits.append(f"{len(full.rejected_orders)} order(s) rejected on gaps")

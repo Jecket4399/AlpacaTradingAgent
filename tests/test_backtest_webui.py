@@ -16,6 +16,7 @@ class BacktestPanelWiringTests(unittest.TestCase):
             "backtest-run-btn",
             "backtest-equity-graph",
             "backtest-windows-table",
+            "backtest-slippage-model",
         ):
             self.assertIn(component_id, rendered)
 

@@ -24,6 +24,57 @@ from .metrics import (
 from .signals import load_recorded_signals
 
 
+_BPS = 1e-4  # one basis point as a fraction
+
+
+class _VolatilitySlippageBroker(bt.brokers.BackBroker):
+    """Backtesting broker whose slippage scales with recent volatility.
+
+    Each fill slips by ``vol_fraction`` of the previous completed bar's range
+    (high - low, as a fraction of its close), clamped to
+    [``min_bps``, ``max_bps``] basis points.  Calm tape costs little; wide
+    bars — where market orders realistically eat through the book — cost
+    more.  The fill-bar's own range is never used, so the model needs no
+    intrabar knowledge.
+    """
+
+    def __init__(self, vol_fraction=0.1, min_bps=1.0, max_bps=50.0):
+        super().__init__()
+        self._vol_fraction = float(vol_fraction)
+        self._min_perc = float(min_bps) * _BPS
+        self._max_perc = float(max_bps) * _BPS
+        self._slippage_feed = None
+        # Base-class slippage plumbing reads p.slip_perc; make fills at the
+        # open slip like set_slippage_perc() would.
+        self.p.slip_open = True
+        self.p.slip_match = True
+        self.p.slip_out = False
+
+    def set_slippage_feed(self, data) -> None:
+        self._slippage_feed = data
+
+    def _dynamic_perc(self) -> float:
+        feed = self._slippage_feed
+        try:
+            close = float(feed.close[-1])
+            bar_range = max(float(feed.high[-1]) - float(feed.low[-1]), 0.0)
+            if close <= 0:
+                return self._min_perc
+            perc = self._vol_fraction * bar_range / close
+        except (IndexError, TypeError, AttributeError):
+            # First bar (no completed predecessor) or no feed registered.
+            return self._min_perc
+        return min(max(perc, self._min_perc), self._max_perc)
+
+    def _slip_up(self, pmax, price, doslip=True, lim=False):
+        self.p.slip_perc = self._dynamic_perc()
+        return super()._slip_up(pmax, price, doslip=doslip, lim=lim)
+
+    def _slip_down(self, pmin, price, doslip=True, lim=False):
+        self.p.slip_perc = self._dynamic_perc()
+        return super()._slip_down(pmin, price, doslip=doslip, lim=lim)
+
+
 class _SignalReplayStrategy(bt.Strategy):
     """Executes an externally supplied {date: action} map, nothing else."""
 
@@ -101,6 +152,7 @@ class BacktestResult:
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     rejected_orders: List[dict] = field(default_factory=list)
+    slippage: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -110,6 +162,7 @@ class BacktestResult:
             "end_date": self.end_date,
             "num_orders": len(self.orders),
             "rejected_orders": list(self.rejected_orders),
+            "slippage": dict(self.slippage),
             "equity_curve": {
                 ts.date().isoformat(): value
                 for ts, value in self.equity_curve.items()
@@ -171,12 +224,56 @@ def run_backtest(
     allow_shorts: bool = False,
     position_pct: float = 0.95,
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
+    slippage_model: str = "fixed",
+    slippage_bps: float = 5.0,
+    slippage_vol_fraction: float = 0.1,
+    slippage_min_bps: float = 1.0,
+    slippage_max_bps: float = 50.0,
 ) -> BacktestResult:
-    """Replay dated signals over price history and measure performance."""
+    """Replay dated signals over price history and measure performance.
+
+    Slippage models (zero-slippage backtests systematically overstate
+    performance, so a small fixed cost is applied by default):
+
+    - ``"fixed"``: every fill slips by ``slippage_bps`` basis points against
+      the trade (default 5 bps).
+    - ``"volatility"``: the slip is ``slippage_vol_fraction`` of the previous
+      bar's high-low range (as a fraction of its close), clamped to
+      [``slippage_min_bps``, ``slippage_max_bps``] — cheap in calm tape,
+      expensive across wide bars.
+    - ``"none"``: frictionless fills (not recommended outside tests).
+    """
     frame = normalize_price_frame(prices)
 
     cerebro = bt.Cerebro()
-    cerebro.adddata(bt.feeds.PandasData(dataname=frame))
+    data_feed = bt.feeds.PandasData(dataname=frame)
+    cerebro.adddata(data_feed)
+
+    if slippage_model == "volatility":
+        broker = _VolatilitySlippageBroker(
+            vol_fraction=slippage_vol_fraction,
+            min_bps=slippage_min_bps,
+            max_bps=slippage_max_bps,
+        )
+        broker.set_slippage_feed(data_feed)
+        cerebro.setbroker(broker)
+        slippage_config = {
+            "model": "volatility",
+            "vol_fraction": float(slippage_vol_fraction),
+            "min_bps": float(slippage_min_bps),
+            "max_bps": float(slippage_max_bps),
+        }
+    elif slippage_model == "fixed":
+        if float(slippage_bps) > 0:
+            cerebro.broker.set_slippage_perc(float(slippage_bps) * _BPS)
+        slippage_config = {"model": "fixed", "bps": float(slippage_bps)}
+    elif slippage_model == "none":
+        slippage_config = {"model": "none"}
+    else:
+        raise ValueError(
+            f"Unknown slippage_model {slippage_model!r}; expected 'fixed', 'volatility', or 'none'."
+        )
+
     cerebro.broker.setcash(float(initial_cash))
     cerebro.broker.setcommission(commission=float(commission))
     cerebro.addstrategy(
@@ -204,6 +301,7 @@ def run_backtest(
         start_date=frame.index[0].date().isoformat(),
         end_date=frame.index[-1].date().isoformat(),
         rejected_orders=list(strategy.rejected_orders),
+        slippage=slippage_config,
     )
 
 
