@@ -155,6 +155,10 @@ def get_xai_api_key() -> str:
     return get_api_key("xai_api_key", "XAI_API_KEY")
 
 
+def get_minimax_api_key() -> str:
+    return get_api_key("minimax_api_key", "MINIMAX_API_KEY")
+
+
 def get_deepseek_api_key() -> str:
     return get_api_key("deepseek_api_key", "DEEPSEEK_API_KEY")
 
@@ -188,6 +192,7 @@ def get_llm_api_key(provider: str) -> str:
         "google": get_google_api_key,
         "anthropic": get_anthropic_api_key,
         "xai": get_xai_api_key,
+        "minimax": get_minimax_api_key,
         "deepseek": get_deepseek_api_key,
         "qwen": get_dashscope_api_key,
         "glm": get_zhipu_api_key,

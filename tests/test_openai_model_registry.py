@@ -16,6 +16,10 @@ class OpenAIModelRegistryTests(unittest.TestCase):
         quick_values = {option["value"] for option in get_openai_model_options("quick")}
         deep_values = {option["value"] for option in get_openai_model_options("deep")}
 
+        self.assertIn("gpt-5.6-luna", quick_values)
+        self.assertIn("gpt-5.6-terra", deep_values)
+        self.assertIn("gpt-5.6-sol", deep_values)
+        self.assertIn("gpt-5.5", deep_values)
         self.assertIn("gpt-5.4-nano", quick_values)
         self.assertIn("gpt-5-nano", quick_values)
         self.assertIn("gpt-5.4-mini", deep_values)
@@ -77,13 +81,30 @@ class OpenAIModelRegistryTests(unittest.TestCase):
         self.assertFalse(payload["store"])
 
     def test_provider_catalog_exposes_custom_model_paths_where_needed(self):
-        for provider in ("local_openai", "deepseek", "qwen", "glm", "openrouter", "ollama", "azure"):
+        for provider in (
+            "openai",
+            "local_openai",
+            "google",
+            "anthropic",
+            "xai",
+            "minimax",
+            "deepseek",
+            "qwen",
+            "glm",
+            "openrouter",
+            "ollama",
+            "azure",
+        ):
             with self.subTest(provider=provider):
                 values = {option["value"] for option in get_model_options_for_provider(provider, "quick")}
                 self.assertIn("custom", values)
 
         self.assertFalse(get_provider_ui_metadata("openai")["backend_visible"])
         self.assertTrue(get_provider_ui_metadata("azure")["backend_visible"])
+        self.assertEqual(
+            get_provider_ui_metadata("minimax")["endpoint"],
+            "https://api.minimax.io/v1",
+        )
 
     def test_openai_provider_defaults_stay_cost_safe_after_switching(self):
         self.assertEqual(get_default_model_for_provider("openai", "quick"), "gpt-5.4-nano")
@@ -105,6 +126,33 @@ class OpenAIModelRegistryTests(unittest.TestCase):
         self.assertEqual(params["temperature"], 0.4)
         self.assertEqual(params["top_p"], 0.7)
         self.assertNotIn("reasoning_effort", params)
+
+    def test_future_numbered_openai_model_uses_responses_controls(self):
+        params = normalize_model_params(
+            "gpt-5.7-terra",
+            {"reasoning_effort": "max", "text_verbosity": "high", "temperature": 0.5},
+            role="deep",
+        )
+
+        self.assertEqual(params["reasoning_effort"], "max")
+        self.assertEqual(params["text_verbosity"], "high")
+        self.assertNotIn("temperature", params)
+
+    def test_provider_catalogs_expose_current_model_ids(self):
+        expected = {
+            "google": {"gemini-3.5-flash", "gemini-3.1-pro-preview"},
+            "anthropic": {"claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"},
+            "xai": {"grok-4.5", "grok-4.3"},
+            "minimax": {"MiniMax-M2.7", "MiniMax-M2.7-highspeed"},
+        }
+        for provider, model_ids in expected.items():
+            with self.subTest(provider=provider):
+                values = {
+                    option["value"]
+                    for role in ("quick", "deep")
+                    for option in get_model_options_for_provider(provider, role)
+                }
+                self.assertTrue(model_ids <= values)
 
 
 if __name__ == "__main__":

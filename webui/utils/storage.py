@@ -38,6 +38,7 @@ DEFAULT_API_KEYS = {
     "google": "",
     "anthropic": "",
     "xai": "",
+    "minimax": "",
     "deepseek": "",
     "dashscope": "",
     "zhipu": "",

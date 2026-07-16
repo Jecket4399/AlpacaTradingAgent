@@ -37,8 +37,8 @@ AlpacaTradingAgent introduces powerful new capabilities specifically designed fo
 - **Parallel Execution**: All 5 analysts run simultaneously for faster analysis with configurable delays to prevent API overload
 
 ### 🧠 **Multi-Provider LLM Runtime**
-- **Default OpenAI GPT-5.4 Path**: Uses `gpt-5.4-nano` for quick agents and `gpt-5.4-mini` for deeper manager/trader agents
-- **Provider Choice**: Supports OpenAI, local OpenAI-compatible endpoints, Google Gemini, Anthropic Claude, xAI, DeepSeek, Qwen, GLM, OpenRouter, Ollama, and Azure OpenAI
+- **Current OpenAI Catalog**: Supports GPT-5.6 Sol/Terra/Luna, GPT-5.5, and GPT-5.4; cost-safe defaults remain `gpt-5.4-nano` and `gpt-5.4-mini`
+- **Provider Choice**: Supports OpenAI, local OpenAI-compatible endpoints, Google Gemini, Anthropic Claude, xAI, MiniMax, DeepSeek, Qwen, GLM, OpenRouter, Ollama, and Azure OpenAI
 - **Provider-Specific Controls**: Preserves GPT reasoning controls, Gemini thinking level, Claude effort, custom model IDs, and Azure deployment names
 - **Local Compatibility**: `OPENAI_USE_LOCAL` and `OPENAI_BASE_URL` continue to route core LLM calls to a local OpenAI-compatible backend
 
@@ -143,6 +143,7 @@ Set `LLM_PROVIDER` in `.env`, the CLI, or the WebUI. Supported providers include
 - **Google Gemini**: `GOOGLE_API_KEY`
 - **Anthropic Claude**: `ANTHROPIC_API_KEY`
 - **xAI Grok**: `XAI_API_KEY`
+- **MiniMax**: `MINIMAX_API_KEY` (defaults to `https://api.minimax.io/v1`)
 - **DeepSeek**: `DEEPSEEK_API_KEY`
 - **Qwen/DashScope**: `DASHSCOPE_API_KEY`
 - **GLM/Zhipu**: `ZHIPU_API_KEY`
@@ -273,8 +274,8 @@ The web interface offers comprehensive trading and analysis capabilities:
 - Margin trading controls and risk management
 
 **LLM and Runtime Controls**
-- Select OpenAI, local OpenAI-compatible, Google, Anthropic, xAI, DeepSeek, Qwen, GLM, OpenRouter, Ollama, or Azure OpenAI
-- Configure custom model IDs for compatible providers and Azure deployment names
+- Select OpenAI, local OpenAI-compatible, Google, Anthropic, xAI, MiniMax, DeepSeek, Qwen, GLM, OpenRouter, Ollama, or Azure OpenAI
+- Configure custom model IDs for every major cloud provider and Azure deployment names, so newly released chat models work before the static catalog is refreshed
 - Tune GPT reasoning controls, Gemini thinking level, Claude effort, output language, and checkpoint resume
 
 ## AlpacaTradingAgent Package

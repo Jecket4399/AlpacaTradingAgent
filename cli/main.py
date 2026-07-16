@@ -470,6 +470,7 @@ def get_user_selections():
         "openrouter",
         "azure",
         "xai",
+        "minimax",
         "deepseek",
         "qwen",
         "glm",

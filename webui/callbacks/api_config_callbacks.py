@@ -227,6 +227,7 @@ def apply_api_keys_to_config(api_keys):
             "google_api_key": api_keys.get("google", ""),
             "anthropic_api_key": api_keys.get("anthropic", ""),
             "xai_api_key": api_keys.get("xai", ""),
+            "minimax_api_key": api_keys.get("minimax", ""),
             "deepseek_api_key": api_keys.get("deepseek", ""),
             "dashscope_api_key": api_keys.get("dashscope", ""),
             "zhipu_api_key": api_keys.get("zhipu", ""),

@@ -7,6 +7,7 @@ that knows which knobs are valid for each model family.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tradingagents.llm_clients.model_catalog import get_model_options as get_provider_catalog_options
@@ -99,9 +100,64 @@ def _reasoning_spec(
 
 
 MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "gpt-5.6-sol": _reasoning_spec(
+        model_id="gpt-5.6-sol",
+        label="GPT-5.6 Sol - latest frontier",
+        description="Current GPT-5.6 frontier model for the hardest professional work.",
+        roles=("deep",),
+        reasoning_effort_options=["none", "low", "medium", "high", "xhigh", "max"],
+        role_defaults={
+            "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+        },
+        price_hint="frontier",
+    ),
+    "gpt-5.6-terra": _reasoning_spec(
+        model_id="gpt-5.6-terra",
+        label="GPT-5.6 Terra - intelligence/cost balance",
+        description="Current GPT-5.6 tier balancing strong reasoning with lower cost than Sol.",
+        reasoning_effort_options=["none", "low", "medium", "high", "xhigh", "max"],
+        role_defaults={
+            "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
+            "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+        },
+        price_hint="balanced frontier",
+    ),
+    "gpt-5.6-luna": _reasoning_spec(
+        model_id="gpt-5.6-luna",
+        label="GPT-5.6 Luna - cost-sensitive current",
+        description="Current GPT-5.6 tier optimized for high-volume and lower-cost workloads.",
+        reasoning_effort_options=["none", "low", "medium", "high", "xhigh", "max"],
+        role_defaults={
+            "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
+            "deep": {"reasoning_effort": "medium", "text_verbosity": "medium"},
+        },
+        price_hint="current low cost",
+    ),
+    "gpt-5.5-pro": _reasoning_spec(
+        model_id="gpt-5.5-pro",
+        label="GPT-5.5 Pro - high-compute previous frontier",
+        description="High-compute GPT-5.5 model for difficult decisions and precision.",
+        roles=("deep",),
+        reasoning_effort_options=["medium", "high", "xhigh"],
+        role_defaults={
+            "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+        },
+        price_hint="highest cost",
+    ),
+    "gpt-5.5": _reasoning_spec(
+        model_id="gpt-5.5",
+        label="GPT-5.5 - previous frontier",
+        description="Previous frontier model retained as a capable pinned generation.",
+        reasoning_effort_options=["none", "low", "medium", "high", "xhigh"],
+        role_defaults={
+            "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
+            "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+        },
+        price_hint="frontier",
+    ),
     "gpt-5.4-pro": _reasoning_spec(
         model_id="gpt-5.4-pro",
-        label="GPT-5.4 Pro - strongest, expensive",
+        label="GPT-5.4 Pro - high-compute previous model",
         description=(
             "Highest quality GPT-5.4 model for tough decisions. Use sparingly "
             "because it is much slower and more expensive."
@@ -119,8 +175,8 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     ),
     "gpt-5.4": _reasoning_spec(
         model_id="gpt-5.4",
-        label="GPT-5.4 - flagship current",
-        description="Current flagship for complex financial reasoning and agent workflows.",
+        label="GPT-5.4 - cost-efficient previous frontier",
+        description="Strong previous frontier model for complex financial reasoning and agents.",
         reasoning_effort_options=["none", "low", "medium", "high", "xhigh"],
         role_defaults={
             "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
@@ -177,14 +233,14 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     ),
     "gpt-4.1": {
         "id": "gpt-4.1",
-        "label": "GPT-4.1 - non-reasoning control",
+        "label": "GPT-4.1 - legacy non-reasoning control",
         "description": (
-            "Current non-reasoning model. Useful when you want temperature and "
+            "Legacy non-reasoning model retained for saved configs that need temperature and "
             "top_p control instead of reasoning effort."
         ),
         "price_hint": "non-reasoning",
         "roles": ["quick", "deep"],
-        "visible": True,
+        "visible": False,
         "api": "chat",
         "supports_reasoning_effort": False,
         "reasoning_effort_options": [],
@@ -202,8 +258,18 @@ MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
             "deep": {"temperature": 0.2, "top_p": 1.0, "max_output_tokens": None},
         },
     },
-    # Backward-compatible hidden entries. They are intentionally not shown in
-    # the selector because GPT-5.4 variants are better replacements for new runs.
+    # Backward-compatible hidden entries retained for saved configurations.
+    "gpt-5.6": _reasoning_spec(
+        model_id="gpt-5.6",
+        label="GPT-5.6 alias - routes to Sol",
+        description="Official alias for GPT-5.6 Sol.",
+        visible=False,
+        reasoning_effort_options=["none", "low", "medium", "high", "xhigh", "max"],
+        role_defaults={
+            "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
+            "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+        },
+    ),
     "gpt-5.2": _reasoning_spec(
         model_id="gpt-5.2",
         label="GPT-5.2 - previous frontier",
@@ -243,6 +309,26 @@ def get_model_spec(model_name: str) -> Dict[str, Any]:
             spec["label"] = model
             return spec
 
+    # Let conventional future numbered GPT reasoning releases work before the
+    # discovery catalog is refreshed. Current numbered GPT families expose the
+    # Responses API, which preserves reasoning and verbosity controls.
+    if re.fullmatch(
+        r"gpt-\d+(?:\.\d+)+(?:-(?:sol|terra|luna|pro|mini|nano))?(?:-\d{4}-\d{2}-\d{2})?",
+        model,
+        flags=re.IGNORECASE,
+    ):
+        return _reasoning_spec(
+            model_id=model,
+            label=model,
+            description="Forward-compatible OpenAI numbered reasoning model.",
+            reasoning_effort_options=["none", "low", "medium", "high", "xhigh", "max"],
+            role_defaults={
+                "quick": {"reasoning_effort": "low", "text_verbosity": "low"},
+                "deep": {"reasoning_effort": "high", "text_verbosity": "medium"},
+            },
+            price_hint="custom current/future",
+        )
+
     # Conservative fallback for unknown OpenAI-compatible chat models.
     spec = deepcopy(MODEL_REGISTRY["gpt-4.1"])
     spec["id"] = model or "custom"
@@ -274,6 +360,7 @@ LLM_PROVIDER_OPTIONS = [
     {"label": "Google Gemini", "value": "google"},
     {"label": "Anthropic Claude", "value": "anthropic"},
     {"label": "xAI Grok", "value": "xai"},
+    {"label": "MiniMax", "value": "minimax"},
     {"label": "DeepSeek", "value": "deepseek"},
     {"label": "Qwen / DashScope", "value": "qwen"},
     {"label": "GLM / Zhipu", "value": "glm"},
@@ -290,9 +377,9 @@ PROVIDER_UI_METADATA: Dict[str, Dict[str, Any]] = {
         "endpoint": "OpenAI default endpoint",
         "endpoint_placeholder": "Uses OpenAI default endpoint",
         "backend_visible": False,
-        "custom_models": False,
-        "summary": "Best-supported path for GPT-5.4 reasoning controls and structured output.",
-        "pills": ["GPT-5.4 defaults", "reasoning controls"],
+        "custom_models": True,
+        "summary": "GPT-5.6 and earlier reasoning controls, plus forward-compatible custom model IDs.",
+        "pills": ["GPT-5.6 catalog", "custom future models"],
     },
     "local_openai": {
         "title": "Local OpenAI-compatible",
@@ -310,9 +397,9 @@ PROVIDER_UI_METADATA: Dict[str, Dict[str, Any]] = {
         "endpoint": "Google Generative AI default endpoint",
         "endpoint_placeholder": "Usually leave blank",
         "backend_visible": False,
-        "custom_models": False,
+        "custom_models": True,
         "summary": "Gemini models use a provider-level thinking mode instead of OpenAI reasoning controls.",
-        "pills": ["thinking mode", "Gemini 2.5/3"],
+        "pills": ["thinking mode", "Gemini 2.5/3.x", "custom future models"],
     },
     "anthropic": {
         "title": "Anthropic Claude",
@@ -320,9 +407,9 @@ PROVIDER_UI_METADATA: Dict[str, Dict[str, Any]] = {
         "endpoint": "Anthropic default endpoint",
         "endpoint_placeholder": "Usually leave blank",
         "backend_visible": False,
-        "custom_models": False,
-        "summary": "Claude models use a provider-level effort setting for supported 4.5+ and 4.6 models.",
-        "pills": ["effort setting", "Claude 4.x"],
+        "custom_models": True,
+        "summary": "Claude 5 and 4.x models use provider-native adaptive thinking and effort controls.",
+        "pills": ["Claude 5", "effort setting", "custom future models"],
     },
     "xai": {
         "title": "xAI Grok",
@@ -330,9 +417,19 @@ PROVIDER_UI_METADATA: Dict[str, Dict[str, Any]] = {
         "endpoint": "https://api.x.ai/v1",
         "endpoint_placeholder": "https://api.x.ai/v1",
         "backend_visible": True,
-        "custom_models": False,
+        "custom_models": True,
         "summary": "OpenAI-compatible Grok endpoint. Override the endpoint only for proxies.",
-        "pills": ["OpenAI-compatible"],
+        "pills": ["Grok 4.5/4.3", "custom future models"],
+    },
+    "minimax": {
+        "title": "MiniMax",
+        "api_key": "MINIMAX_API_KEY",
+        "endpoint": "https://api.minimax.io/v1",
+        "endpoint_placeholder": "https://api.minimax.io/v1",
+        "backend_visible": True,
+        "custom_models": True,
+        "summary": "MiniMax text models through the official OpenAI-compatible Chat Completions API.",
+        "pills": ["M2.7", "tool calling", "custom future models"],
     },
     "deepseek": {
         "title": "DeepSeek",
@@ -413,7 +510,9 @@ def provider_supports_custom_model(provider: str) -> bool:
 def get_model_options_for_provider(provider: str, role: str) -> List[Dict[str, str]]:
     provider_key = (provider or "openai").lower()
     if provider_key == "openai":
-        return get_openai_model_options(role)
+        return get_openai_model_options(role) + [
+            {"label": "Custom OpenAI model ID", "value": "custom"}
+        ]
     if provider_key == "local_openai":
         return get_openai_model_options(role) + [{"label": "Custom local model ID", "value": "custom"}]
     options = [
