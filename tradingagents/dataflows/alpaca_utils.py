@@ -1256,6 +1256,14 @@ class AlpacaUtils:
                 if not verdict.allowed:
                     error_msg = "Safety layer blocked order flow: " + " ".join(verdict.reasons)
                     print(f"[SAFETY] {error_msg}")
+                    # Ops alert (deduped by reason, so a tripped breaker
+                    # alerts once per cooldown window, not once per order).
+                    try:
+                        from tradingagents.alerts import notify_safety_block
+
+                        notify_safety_block(symbol, verdict.reasons)
+                    except Exception:
+                        pass
                     return {
                         "success": False,
                         "safety_blocked": True,
