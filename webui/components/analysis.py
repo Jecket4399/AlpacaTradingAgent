@@ -74,12 +74,18 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
         # Execute the typed intent when present; fall back to legacy signal execution
         # for older runs or providers that could not produce structured output.
         if trade_intent:
+            risk_params = (
+                dict(DEFAULT_CONFIG.get("risk_sizing_params") or {})
+                if DEFAULT_CONFIG.get("risk_sizing_enabled")
+                else None
+            )
             result = AlpacaUtils.execute_trade_intent(
                 symbol=ticker,
                 current_position=current_position,
                 trade_intent=trade_intent,
                 dollar_amount=trade_amount,
                 allow_shorts=allow_shorts,
+                risk_params=risk_params,
             )
         else:
             result = AlpacaUtils.execute_trading_action(

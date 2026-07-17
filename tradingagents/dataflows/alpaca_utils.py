@@ -15,10 +15,18 @@ from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, QueryOrderS
 from alpaca.common.enums import Sort
 from .config import get_api_key, get_alpaca_use_paper, get_config
 from .ticker_utils import TickerUtils
+
 # Imported lazily inside execute_trade_intent: a module-level import would
 # create a circular import (dataflows -> agents -> dataflows.interface).
 if TYPE_CHECKING:
     from tradingagents.agents.schemas import TradeIntent
+
+from tradingagents.risk.position_sizing import (
+    PositionSizer,
+    RiskParameters,
+    SizingDecision,
+    compute_atr,
+)
 
 
 # Fallback dictionary for company names
@@ -835,12 +843,77 @@ class AlpacaUtils:
             return {"success": False, "error": error_msg}
 
     @staticmethod
+    def get_account_risk_snapshot() -> dict:
+        """Numeric account snapshot for the deterministic risk engine.
+
+        Unlike get_account_info, this raises on API failure instead of
+        returning zeros: silent zero equity would read as "no capital" and
+        corrupt every downstream sizing decision.
+        """
+        client = get_alpaca_trading_client()
+        account = client.get_account()
+        equity = float(account.equity)
+        gross_exposure = 0.0
+        for position in client.get_all_positions():
+            try:
+                gross_exposure += abs(float(position.market_value))
+            except (TypeError, ValueError):
+                continue
+        return {"equity": equity, "gross_exposure": gross_exposure}
+
+    @staticmethod
+    def compute_risk_sized_amount(
+        symbol: str,
+        confidence: str,
+        requested_notional: float,
+        risk_params: Optional[dict] = None,
+        side: str = "buy",
+    ) -> SizingDecision:
+        """Run the deterministic sizing engine against live account/market data.
+
+        Raises when required data (account snapshot, price) is unavailable so
+        the caller can decide whether to fail open or block.
+        """
+        params = RiskParameters.from_dict(risk_params)
+        snapshot = AlpacaUtils.get_account_risk_snapshot()
+
+        quote = AlpacaUtils.get_latest_quote(symbol)
+        quoted = [
+            float(p)
+            for p in (quote.get("bid_price"), quote.get("ask_price"))
+            if p and float(p) > 0
+        ]
+        price = sum(quoted) / len(quoted) if quoted else None
+
+        bars = AlpacaUtils.get_stock_data_window(
+            symbol, look_back_days=max(40, params.atr_period * 3)
+        )
+        atr = compute_atr(bars, period=params.atr_period)
+
+        if price is None:
+            try:
+                price = float(bars["close"].iloc[-1])
+            except Exception:
+                raise ValueError(f"No price data available for {symbol}")
+
+        return PositionSizer(params).size_position(
+            equity=snapshot["equity"],
+            price=price,
+            atr=atr,
+            confidence=confidence,
+            requested_notional=requested_notional,
+            current_gross_exposure=snapshot["gross_exposure"],
+            side=side,
+        )
+
+    @staticmethod
     def execute_trade_intent(
         symbol: str,
         current_position: str,
         trade_intent: Union["TradeIntent", Dict[str, Any]],
         dollar_amount: float,
         allow_shorts: bool = False,
+        risk_params: Optional[dict] = None,
     ) -> dict:
         """Validate and execute a typed TradeIntent.
 
@@ -917,16 +990,49 @@ class AlpacaUtils:
         ):
             warnings.append("Broker stop-loss/take-profit orders were not submitted; controls remain advisory.")
 
+        # Deterministic risk gate: the LLM decided direction; position size is
+        # recomputed mathematically for position-opening actions when enabled.
+        effective_amount = dollar_amount
+        risk_sizing_info = None
+        if risk_params is not None and signal in {"BUY", "LONG", "SHORT"}:
+            order_side = "sell" if signal == "SHORT" else "buy"
+            try:
+                sizing = AlpacaUtils.compute_risk_sized_amount(
+                    symbol=symbol,
+                    confidence=intent.confidence,
+                    requested_notional=dollar_amount,
+                    risk_params=risk_params,
+                    side=order_side,
+                )
+            except Exception as e:
+                warnings.append(
+                    f"Risk sizing unavailable ({e}); falling back to configured notional."
+                )
+                risk_sizing_info = {"applied": False, "error": str(e)}
+            else:
+                if not sizing.approved:
+                    return {
+                        "success": False,
+                        "error": f"Trade blocked by deterministic risk engine: {sizing.reason}",
+                        "trade_intent": intent.model_dump(mode="json"),
+                        "intent_warnings": warnings,
+                        "risk_sizing": {"applied": True, **sizing.to_dict()},
+                    }
+                effective_amount = sizing.notional
+                risk_sizing_info = {"applied": True, **sizing.to_dict()}
+
         result = AlpacaUtils.execute_trading_action(
             symbol=symbol,
             current_position=current_position,
             signal=signal,
-            dollar_amount=dollar_amount,
+            dollar_amount=effective_amount,
             allow_shorts=allow_shorts,
         )
         result["trade_intent"] = intent.model_dump(mode="json")
         result["intent_warnings"] = warnings
         result["protective_order_status"] = "advisory_only"
+        if risk_sizing_info is not None:
+            result["risk_sizing"] = risk_sizing_info
         return result
 
     @staticmethod
@@ -949,19 +1055,35 @@ class AlpacaUtils:
             results = []
             
             # Helper to calculate integer quantity for any orders (used by both trading modes)
-            def _calc_qty(sym: str, amount: float) -> int:
-                """Return integer share qty based on latest quote price."""
+            def _calc_qty(sym: str, amount: float) -> Optional[int]:
+                """Return integer share qty from the latest quote, or None when no
+                trustworthy price exists. Never guess a price: a wrong assumption
+                converts a dollar budget into that many shares."""
                 try:
                     quote = AlpacaUtils.get_latest_quote(sym)
                     price = quote.get("bid_price") or quote.get("ask_price")
-                    if not price or price <= 0:
-                        # Fallback: assume $1 to avoid div-by-zero; will raise later if Alpaca rejects
-                        price = 1
-                    qty = int(amount / price)
-                    return max(qty, 1)
+                    price = float(price) if price else 0.0
                 except Exception:
-                    # Fallback: at least 1 share
-                    return 1
+                    return None
+                if price <= 0:
+                    return None
+                return max(int(amount / price), 1)
+
+            def _qty_order(sym: str, side: str, action_name: str) -> dict:
+                """Place a qty-based market order, failing safely without price data."""
+                qty_int = _calc_qty(sym, dollar_amount)
+                if qty_int is None:
+                    return {
+                        "action": action_name,
+                        "result": {
+                            "success": False,
+                            "error": f"No trustworthy price data for {sym}; {side} order skipped",
+                        },
+                    }
+                return {
+                    "action": action_name,
+                    "result": AlpacaUtils.place_market_order(sym, side, qty=qty_int),
+                }
             
             if allow_shorts:
                 # Trading mode: LONG/NEUTRAL/SHORT signals
@@ -985,10 +1107,8 @@ class AlpacaUtils:
                                 error_msg = f"Direct short selling not supported for crypto assets like {symbol}. Position closed but short not opened."
                                 results.append({"action": "open_short", "result": {"success": False, "error": error_msg}})
                             else:
-                                # Calculate integer quantity for short (fractional shares cannot be shorted)
-                                qty_int = _calc_qty(symbol, dollar_amount)
-                                short_result = AlpacaUtils.place_market_order(symbol, "sell", qty=qty_int)
-                                results.append({"action": "open_short", "result": short_result})
+                                # Fractional shares cannot be shorted; use integer qty
+                                results.append(_qty_order(symbol, "sell", "open_short"))
                 
                 elif current_position == "SHORT":
                     if signal == "SHORT":
@@ -1007,11 +1127,10 @@ class AlpacaUtils:
                             if is_crypto:
                                 # For crypto, use exact dollar amount (notional)
                                 long_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
+                                results.append({"action": "open_long", "result": long_result})
                             else:
                                 # For stocks, calculate quantity
-                                qty_int = _calc_qty(symbol, dollar_amount)
-                                long_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
-                            results.append({"action": "open_long", "result": long_result})
+                                results.append(_qty_order(symbol, "buy", "open_long"))
                 
                 elif current_position == "NEUTRAL":
                     if signal == "LONG":
@@ -1020,11 +1139,10 @@ class AlpacaUtils:
                         if is_crypto:
                             # For crypto, use exact dollar amount (notional)
                             long_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
+                            results.append({"action": "open_long", "result": long_result})
                         else:
                             # For stocks, calculate quantity
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            long_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
-                        results.append({"action": "open_long", "result": long_result})
+                            results.append(_qty_order(symbol, "buy", "open_long"))
                     elif signal == "SHORT":
                         # Check if this is crypto - Alpaca doesn't support crypto short selling directly
                         is_crypto = "/" in symbol.upper()
@@ -1033,9 +1151,7 @@ class AlpacaUtils:
                             results.append({"action": "open_short", "result": {"success": False, "error": error_msg}})
                         else:
                             # For stocks, attempt short selling
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            short_result = AlpacaUtils.place_market_order(symbol, "sell", qty=qty_int)
-                            results.append({"action": "open_short", "result": short_result})
+                            results.append(_qty_order(symbol, "sell", "open_short"))
                     elif signal == "NEUTRAL":
                         results.append({"action": "hold", "message": f"No position needed for {symbol}"})
             
@@ -1053,11 +1169,10 @@ class AlpacaUtils:
                         if is_crypto:
                             # For crypto, use exact dollar amount (notional)
                             buy_result = AlpacaUtils.place_market_order(symbol, "buy", notional=dollar_amount)
+                            results.append({"action": "buy", "result": buy_result})
                         else:
                             # For stocks, calculate quantity
-                            qty_int = _calc_qty(symbol, dollar_amount)
-                            buy_result = AlpacaUtils.place_market_order(symbol, "buy", qty=qty_int)
-                        results.append({"action": "buy", "result": buy_result})
+                            results.append(_qty_order(symbol, "buy", "buy"))
                 
                 elif signal == "SELL":
                     if has_position:
