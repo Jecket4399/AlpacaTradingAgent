@@ -87,6 +87,15 @@ DEFAULT_CONFIG = {
     "alert_telegram_chat_id": None,  # Or env ALERT_TELEGRAM_CHAT_ID
     "alert_webhook_url": None,  # Generic JSON webhook; or env ALERT_WEBHOOK_URL
     "alert_cooldown_seconds": 900,  # Identical alerts suppressed within this window
+    # Portfolio-level intelligence (deterministic sizing above per-symbol decisions)
+    "portfolio_intelligence_enabled": True,  # Master switch for portfolio-aware sizing of new long exposure
+    "portfolio_lookback_bars": 60,  # Daily bars used for correlation / volatility estimates
+    "portfolio_high_correlation": 0.6,  # Positive correlation above this = duplicated risk
+    "portfolio_correlated_size_factor": 0.5,  # Size multiplier applied on a correlation hit
+    "portfolio_vol_sizing_enabled": True,  # Inverse-volatility (simplified risk parity) sizing
+    "portfolio_target_daily_vol_pct": 2.0,  # Realized daily vol above this scales size by target/realized
+    "portfolio_max_gross_exposure_pct": 100.0,  # Total book value cap as % of equity; 0 = uncapped
+    "portfolio_min_size_factor": 0.25,  # Floor on combined penalties so trades never silently vanish
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow
