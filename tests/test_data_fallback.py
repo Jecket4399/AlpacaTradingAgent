@@ -25,6 +25,32 @@ class DataFallbackTests(unittest.TestCase):
         self.assertTrue(result.empty)
         yf_download.assert_not_called()
 
+    def test_nginx_401_html_error_triggers_fallback(self):
+        # Alpaca auth failures can surface as a raw nginx HTML page that says
+        # "401 Authorization Required" without the word "unauthorized".
+        fallback = pd.DataFrame(
+            {
+                "Date": pd.to_datetime(["2026-01-01", "2026-01-02"]),
+                "Open": [10.0, 11.0],
+                "High": [12.0, 12.5],
+                "Low": [9.5, 10.5],
+                "Close": [11.5, 12.0],
+                "Volume": [1000, 1100],
+            }
+        ).set_index("Date")
+
+        set_config({**self.original_config, "data_fallback_enabled": True})
+        nginx_error = ValueError(
+            "<html>\n<head><title>401 Authorization Required</title></head>\n</html>"
+        )
+        with patch(
+            "tradingagents.dataflows.alpaca_utils.get_alpaca_stock_client",
+            side_effect=nginx_error,
+        ), patch("yfinance.download", return_value=fallback):
+            result = AlpacaUtils.get_stock_data("AAPL", "2026-01-01", "2026-01-03")
+
+        self.assertFalse(result.empty)
+
     def test_yfinance_fallback_normalizes_ohlcv_columns(self):
         fallback = pd.DataFrame(
             {

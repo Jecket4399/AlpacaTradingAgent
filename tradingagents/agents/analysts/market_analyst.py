@@ -303,9 +303,25 @@ def create_market_analyst(llm, toolkit):
         else:
             result = AIMessage(content=_normalize_market_report_markdown(analysis_content))
 
+        # Deterministic regime context: computed from price/volume history
+        # (no LLM), appended so every downstream agent that reads the market
+        # report sees the same risk-posture facts. Failure-isolated.
+        market_report = result.content
+        try:
+            from tradingagents.dataflows.config import get_config
+            from tradingagents.regime import RegimeConfig, regime_report_block
+
+            regime_block = regime_report_block(
+                ticker, config=RegimeConfig.from_config(get_config() or {})
+            )
+            if regime_block:
+                market_report = f"{market_report}\n\n{regime_block}"
+        except Exception as exc:
+            print(f"[REGIME] Market-report injection skipped for {ticker}: {exc}")
+
         return {
             "messages": [result],
-            "market_report": result.content,
+            "market_report": market_report,
         }
 
     return market_analyst_node

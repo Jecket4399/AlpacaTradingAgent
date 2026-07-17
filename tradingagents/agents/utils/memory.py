@@ -2,20 +2,32 @@ import chromadb
 from chromadb.config import Settings
 from openai import OpenAI
 import numpy as np
+from datetime import date
 from pathlib import Path
 import re
+import uuid
 from tradingagents.dataflows.config import get_openai_client_config, get_openai_embedding_model
 from tradingagents.agents.utils.agent_trading_modes import extract_recommendation
 
 
 class FinancialSituationMemory:
-    def __init__(self, name):
+    def __init__(self, name, config: dict = None):
         client_config = get_openai_client_config()
         self.client = OpenAI(**client_config) if client_config else None
         self.embedding_model = get_openai_embedding_model()
         self.embeddings_enabled = self.client is not None
         self._warned_embedding_failure = False
-        self.chroma_client = chromadb.Client(Settings(allow_reset=True))
+        persist_dir = (config or {}).get("agent_memory_dir") or ""
+        if persist_dir:
+            # Persistent store: lessons written after outcome resolution
+            # survive process restarts, which is what makes the reflection
+            # loop cumulative instead of session-scoped.
+            Path(persist_dir).mkdir(parents=True, exist_ok=True)
+            self.chroma_client = chromadb.PersistentClient(
+                path=str(persist_dir), settings=Settings(allow_reset=True)
+            )
+        else:
+            self.chroma_client = chromadb.Client(Settings(allow_reset=True))
         self.situation_collection = self.chroma_client.get_or_create_collection(name=name)
 
     def get_embedding(self, text):
@@ -48,8 +60,14 @@ class FinancialSituationMemory:
                 self._warned_embedding_failure = True
             return None
 
-    def add_situations(self, situations_and_advice):
-        """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)"""
+    def add_situations(self, situations_and_advice, extra_metadata=None):
+        """Add financial situations and their corresponding advice.
+
+        `situations_and_advice` is a list of (situation, recommendation)
+        tuples. `extra_metadata`, when given, is merged into every entry's
+        metadata — used e.g. by batch teaching to tag lessons with their
+        source and an idempotency key.
+        """
         if not self.embeddings_enabled:
             return
 
@@ -58,26 +76,39 @@ class FinancialSituationMemory:
         ids = []
         embeddings = []
 
-        offset = self.situation_collection.count()
-
-        for i, (situation, recommendation) in enumerate(situations_and_advice):
+        for situation, recommendation in situations_and_advice:
             embedding = self.get_embedding(situation)
             if embedding is None:
                 continue
             situations.append(situation)
             advice.append(recommendation)
-            ids.append(str(offset + i))
+            # Random ids: count-based ids collide across processes once the
+            # collection is persistent (two sessions can see the same count).
+            ids.append(uuid.uuid4().hex)
             embeddings.append(embedding)
 
         if not embeddings:
             return
 
+        # created_at powers time-decay maintenance; an explicit value in
+        # extra_metadata (e.g. a backdated batch-taught lesson) wins.
+        base_metadata = {"created_at": date.today().isoformat()}
+        base_metadata.update(extra_metadata or {})
+
         self.situation_collection.add(
             documents=situations,
-            metadatas=[{"recommendation": rec} for rec in advice],
+            metadatas=[{**base_metadata, "recommendation": rec} for rec in advice],
             embeddings=embeddings,
             ids=ids,
         )
+
+    def has_metadata_value(self, key, value) -> bool:
+        """True when any stored entry carries `key == value` in its metadata."""
+        try:
+            found = self.situation_collection.get(where={key: value}, limit=1)
+        except Exception:
+            return False
+        return bool(found and found.get("ids"))
 
     def get_memories(self, current_situation, n_matches=1):
         """Find matching recommendations using OpenAI embeddings"""

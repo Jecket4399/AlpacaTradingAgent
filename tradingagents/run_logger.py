@@ -35,6 +35,43 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def _redact_sensitive_config(value: Any) -> Any:
+    """Remove credentials before persisting a run configuration."""
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            normalized = str(key).strip().lower()
+            sensitive = (
+                normalized in {
+                    "api_key",
+                    "secret",
+                    "password",
+                    "token",
+                    "webhook_url",
+                    "alert_webhook_url",
+                }
+                or normalized.endswith(
+                    (
+                        "_api_key",
+                        "_api_secret",
+                        "_secret_key",
+                        "_client_secret",
+                        "_password",
+                        "_bot_token",
+                        "_chat_id",
+                    )
+                )
+            )
+            redacted[str(key)] = (
+                "[REDACTED]" if sensitive and item not in (None, "")
+                else _redact_sensitive_config(item)
+            )
+        return redacted
+    if isinstance(value, (list, tuple, set)):
+        return [_redact_sensitive_config(item) for item in value]
+    return value
+
+
 class RunAuditLogger:
     """
     Persist a complete audit trail for each analysis run.
@@ -139,7 +176,7 @@ class RunAuditLogger:
                 "started_at": _utc_now_iso(),
                 "ended_at": None,
                 "status": "running",
-                "config": _json_safe(config or {}),
+                "config": _json_safe(_redact_sensitive_config(config or {})),
                 "metadata": _json_safe(metadata or {}),
                 "events": [],
                 "snapshots": {},
@@ -233,9 +270,17 @@ class RunAuditLogger:
                 run_data["summary"]["total_llm_output_tokens"] += int(
                     usage.get("output_tokens", 0) or 0
                 )
-                run_data["summary"]["total_llm_tokens"] += int(
-                    usage.get("total_tokens", 0) or 0
-                )
+                total_tokens = int(usage.get("total_tokens", 0) or 0)
+                run_data["summary"]["total_llm_tokens"] += total_tokens
+                if total_tokens:
+                    # Feed the safety layer's daily LLM token budget; logging
+                    # must never fail because the guard is unavailable.
+                    try:
+                        from tradingagents.safety import get_safety_guard
+
+                        get_safety_guard().record_llm_tokens(total_tokens)
+                    except Exception:
+                        pass
             elif event_type == "agent_output":
                 run_data["summary"]["agent_output_events"] += 1
             elif event_type == "node_execution":
@@ -387,6 +432,49 @@ class RunAuditLogger:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as f:
             json.dump(run_data, f, indent=2, ensure_ascii=False)
+
+
+def load_final_state_snapshot(
+    symbol: str,
+    trade_date: str,
+    eval_results_dir: str = "eval_results",
+) -> Optional[Dict[str, Any]]:
+    """Return the final_state snapshot of the newest completed run for a date.
+
+    Lets outcome-time consumers (reflection, evaluation) recover the exact
+    market situation a past decision was made in, without keeping every run
+    in process memory. Returns None when no matching completed run exists.
+    """
+    runs_dir = (
+        Path(eval_results_dir)
+        / _sanitize_for_path(symbol or "unknown")
+        / "TradingAgentsStrategy_logs"
+        / "runs"
+    )
+    if not runs_dir.is_dir():
+        return None
+
+    best_payload = None
+    best_started_at = ""
+    for path in runs_dir.glob("*.json"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception:
+            continue
+        if payload.get("status") != "completed":
+            continue
+        if str(payload.get("trade_date")) != str(trade_date):
+            continue
+        final_state = (payload.get("snapshots") or {}).get("final_state")
+        if not isinstance(final_state, dict):
+            continue
+        started_at = str(payload.get("started_at") or "")
+        if started_at >= best_started_at:
+            best_started_at = started_at
+            best_payload = final_state
+
+    return best_payload
 
 
 _RUN_AUDIT_LOGGER = RunAuditLogger()

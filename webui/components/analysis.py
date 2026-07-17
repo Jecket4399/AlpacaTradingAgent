@@ -67,6 +67,53 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
 
         print(f"[TRADE] Executing trade for {ticker}: {recommended_action} with ${trade_amount}")
 
+        # Portfolio-level sizing: deterministic layer above the per-symbol
+        # decision (correlation penalty, inverse-vol sizing, gross exposure
+        # cap). Failure-isolated: any problem keeps the requested amount.
+        try:
+            from tradingagents.dataflows.config import get_config
+            from tradingagents.portfolio import (
+                PortfolioLimitsConfig,
+                adjust_new_position_notional,
+                gather_portfolio_state_via_alpaca,
+            )
+
+            trade_amount = adjust_new_position_notional(
+                symbol=ticker,
+                action=recommended_action,
+                requested_notional=trade_amount,
+                gather_state=lambda: gather_portfolio_state_via_alpaca(ticker),
+                config=PortfolioLimitsConfig.from_config(get_config() or {}),
+            )
+            if trade_amount <= 0:
+                print(
+                    f"[TRADE] Portfolio layer zeroed the {ticker} order "
+                    "(no gross-exposure headroom); skipping execution."
+                )
+                return
+        except Exception as exc:
+            print(f"[TRADE] Portfolio sizing unavailable for {ticker}: {exc}")
+
+        # Regime-aware sizing: hostile regimes shrink NEW exposure, never
+        # flip the decision. Failure-isolated - any problem keeps the
+        # requested amount untouched.
+        if str(recommended_action).upper() in ("BUY", "LONG"):
+            try:
+                from tradingagents.dataflows.config import get_config
+                from tradingagents.regime import RegimeConfig, regime_risk_multiplier
+
+                multiplier = regime_risk_multiplier(
+                    ticker, config=RegimeConfig.from_config(get_config() or {})
+                )
+                if multiplier < 1.0:
+                    trade_amount = trade_amount * multiplier
+                    print(
+                        f"[TRADE] Regime filter scaled {ticker} amount to "
+                        f"${trade_amount:,.0f} (x{multiplier:.2f})"
+                    )
+            except Exception as exc:
+                print(f"[TRADE] Regime sizing unavailable for {ticker}: {exc}")
+
         # Get current position
         current_position = AlpacaUtils.get_current_position_state(ticker)
         print(f"[TRADE] Current position for {ticker}: {current_position}")
@@ -74,12 +121,18 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
         # Execute the typed intent when present; fall back to legacy signal execution
         # for older runs or providers that could not produce structured output.
         if trade_intent:
+            risk_params = (
+                dict(DEFAULT_CONFIG.get("risk_sizing_params") or {})
+                if DEFAULT_CONFIG.get("risk_sizing_enabled")
+                else None
+            )
             result = AlpacaUtils.execute_trade_intent(
                 symbol=ticker,
                 current_position=current_position,
                 trade_intent=trade_intent,
                 dollar_amount=trade_amount,
                 allow_shorts=allow_shorts,
+                risk_params=risk_params,
             )
         else:
             result = AlpacaUtils.execute_trading_action(
@@ -388,6 +441,19 @@ def start_analysis(
     progress=None,
 ):
     """Start real-time analysis function for the UI"""
+
+    # Deterministic LLM budget gate (production safety layer): refuse to burn
+    # tokens on a new analysis once the daily budget is exhausted.
+    try:
+        from tradingagents.safety import get_safety_guard
+
+        budget_verdict = get_safety_guard().check_llm_budget()
+    except Exception:
+        budget_verdict = None
+    if budget_verdict is not None and not budget_verdict.allowed:
+        message = " ".join(budget_verdict.reasons)
+        print(f"[SAFETY] {message}")
+        return message
 
     # Parse selected analysts
     selected_analysts = []

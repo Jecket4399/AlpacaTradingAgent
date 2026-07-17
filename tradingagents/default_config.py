@@ -10,6 +10,22 @@ DEFAULT_CONFIG = {
         os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md"),
     ),
     "memory_log_max_entries": None,
+    # Self-learning memory: when set, the per-agent ChromaDB reflection
+    # memories persist across restarts instead of resetting each session.
+    "agent_memory_dir": os.getenv(
+        "TRADINGAGENTS_AGENT_MEMORY_DIR",
+        os.path.join(_TRADINGAGENTS_HOME, "memory", "agent_memory"),
+    ),
+    # Feed realized outcomes back into the per-agent memories (5 quick-LLM
+    # reflection calls per resolved decision). Requires OpenAI embeddings.
+    "reflection_on_outcome_enabled": True,
+    # FinMem-style memory maintenance (arXiv:2311.13743): Ebbinghaus time
+    # decay with importance-scaled stability, near-duplicate pruning, and a
+    # per-collection size cap. Runs after outcome reflections.
+    "memory_maintenance_enabled": True,
+    "memory_max_entries_per_collection": 500,
+    "memory_duplicate_similarity_threshold": 0.97,
+    "memory_recency_purge_threshold": 0.05,
     "checkpoint_enabled": False,
     # "data_dir": "/Users/yluo/Documents/Code/ScAI/FR1-data",
     "data_dir": "data/ScAI/FR1-data",
@@ -51,6 +67,46 @@ DEFAULT_CONFIG = {
     "max_recur_limit": 200,
     # Trading settings
     "allow_shorts": False,  # False = Investment mode (BUY/HOLD/SELL), True = Trading mode (LONG/NEUTRAL/SHORT)
+    # Deterministic risk sizing: when enabled, position size for opening trades
+    # is recomputed by tradingagents.risk (fractional Kelly, ATR stops, exposure
+    # caps) with the configured trade amount acting as a hard ceiling.
+    "risk_sizing_enabled": False,
+    "risk_sizing_params": {},  # optional RiskParameters overrides (see tradingagents/risk/position_sizing.py)
+    "protective_bracket_orders_enabled": True,  # Submit stop-loss/take-profit as real bracket/OTO child orders on equity entries (crypto unsupported by Alpaca)
+    # Production safety layer (deterministic, independent of agent logic)
+    "safety_enabled": True,  # Master switch for pre-trade checks + circuit breakers + kill switch
+    "max_trade_notional_usd": 25000.0,  # Per-order notional cap; 0 = uncapped
+    "max_symbol_concentration_pct": 25.0,  # Max per-symbol exposure as % of equity; 0 = uncapped
+    "daily_loss_halt_pct": 10.0,  # Circuit breaker: halt trading when equity falls this % vs yesterday
+    "max_drawdown_halt_pct": 15.0,  # Circuit breaker: halt when equity falls this % below the high-water mark
+    "max_consecutive_rejections": 5,  # Circuit breaker: halt after this many broker rejections in a row
+    "daily_llm_token_budget": 0,  # Refuse new analyses after this many LLM tokens per day; 0 = unlimited
+    # Operational alerts (Telegram / webhook; stdlib-only, failure-isolated)
+    "alerts_enabled": True,  # Master switch; channels below must also be configured
+    "alert_telegram_bot_token": None,  # Or env ALERT_TELEGRAM_BOT_TOKEN
+    "alert_telegram_chat_id": None,  # Or env ALERT_TELEGRAM_CHAT_ID
+    "alert_webhook_url": None,  # Generic JSON webhook; or env ALERT_WEBHOOK_URL
+    "alert_cooldown_seconds": 900,  # Identical alerts suppressed within this window
+    # Portfolio-level intelligence (deterministic sizing above per-symbol decisions)
+    "portfolio_intelligence_enabled": True,  # Master switch for portfolio-aware sizing of new long exposure
+    "portfolio_lookback_bars": 60,  # Daily bars used for correlation / volatility estimates
+    "portfolio_high_correlation": 0.6,  # Positive correlation above this = duplicated risk
+    "portfolio_correlated_size_factor": 0.5,  # Size multiplier applied on a correlation hit
+    "portfolio_vol_sizing_enabled": True,  # Inverse-volatility (simplified risk parity) sizing
+    "portfolio_target_daily_vol_pct": 2.0,  # Realized daily vol above this scales size by target/realized
+    "portfolio_max_gross_exposure_pct": 100.0,  # Total book value cap as % of equity; 0 = uncapped
+    "portfolio_min_size_factor": 0.25,  # Floor on combined penalties so trades never silently vanish
+    # Market regime detection (deterministic, fit-free; filter not signal)
+    "regime_detection_enabled": True,  # Inject regime block into the market report and scale sizing
+    "regime_vol_window": 20,  # Bars for realized-volatility estimate
+    "regime_turbulent_percentile": 75.0,  # Vol percentile above which the regime is turbulent
+    "regime_turbulent_abs_annual_vol_pct": 40.0,  # Absolute annualized-vol floor for turbulence
+    "regime_trend_window": 50,  # SMA window for the trend dimension
+    "regime_thin_liquidity_ratio": 0.7,  # Recent/baseline dollar-volume ratio below this = thinning
+    "regime_turbulent_size_factor": 0.5,  # Size multiplier in turbulent volatility
+    "regime_downtrend_size_factor": 0.75,  # Size multiplier in a downtrend
+    "regime_thin_liquidity_size_factor": 0.85,  # Size multiplier when liquidity is thinning
+    "regime_min_risk_multiplier": 0.25,  # Floor for the combined regime multiplier
     # Execution settings
     "parallel_analysts": True,  # True = Run analysts in parallel for faster execution, False = Sequential execution
     "parallel_risk_first_round": True,  # Run Risky/Safe/Neutral in parallel only for round 1, then revert to linear flow

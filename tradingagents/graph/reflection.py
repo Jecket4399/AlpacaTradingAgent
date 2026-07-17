@@ -96,6 +96,39 @@ class Reflector:
         )
         risk_manager_memory.add_situations([(situation, result)])
 
+    def reflect_on_outcome(
+        self,
+        state: Dict[str, Any],
+        returns_losses: str,
+        memories: Dict[str, Any],
+    ) -> Dict[str, bool]:
+        """Run every per-agent reflection against a realized outcome.
+
+        `state` is a final_state dict (live or recovered from a run log) and
+        `memories` maps component name -> FinancialSituationMemory. Each
+        component is isolated: one failure (missing key, LLM error) must not
+        block the remaining lessons from being written.
+        """
+        reflectors = {
+            "bull": self.reflect_bull_researcher,
+            "bear": self.reflect_bear_researcher,
+            "trader": self.reflect_trader,
+            "invest_judge": self.reflect_invest_judge,
+            "risk_manager": self.reflect_risk_manager,
+        }
+        results: Dict[str, bool] = {}
+        for name, reflect in reflectors.items():
+            memory = memories.get(name)
+            if memory is None:
+                continue
+            try:
+                reflect(state, returns_losses, memory)
+                results[name] = True
+            except Exception as exc:
+                print(f"[REFLECTION] Skipped {name} reflection: {exc}")
+                results[name] = False
+        return results
+
     def reflect_on_final_decision(
         self,
         final_decision: str,

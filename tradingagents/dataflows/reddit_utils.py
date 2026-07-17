@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from typing import Annotated, List
 import os
 import re
-from .alpaca_utils import AlpacaUtils
 
 REDDIT_USER_AGENT = "TradingAgents/1.0"
 REDDIT_CATEGORY_SUBREDDITS = {
@@ -46,6 +45,11 @@ def get_company_name(ticker: str) -> str:
     normalized = (ticker or "").strip().upper()
     if not normalized:
         return ticker
+
+    # Imported here, not at module level: alpaca_utils pulls in the agents
+    # package, which imports dataflows.interface, which imports this module —
+    # a top-level import breaks whenever dataflows is imported before agents.
+    from .alpaca_utils import AlpacaUtils
 
     company_name = AlpacaUtils.get_company_name(normalized)
     if company_name and company_name.strip().upper() != normalized:
