@@ -7,8 +7,11 @@ daily report is assembled purely from data the system already persists.
 """
 
 import json
+import os
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from tradingagents.alerts import (
@@ -101,6 +104,23 @@ class AlertDispatchTests(unittest.TestCase):
             transport=_FakeTransport(fail=True),
         )
         self.assertFalse(result["sent"])
+
+    def test_transport_failure_log_does_not_echo_credentials_or_urls(self):
+        def leaking_transport(url, payload):
+            raise ConnectionError(f"failed request to {url}")
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            send_alert(
+                "halt",
+                "body",
+                config=_alert_config(),
+                transport=leaking_transport,
+            )
+
+        logged = output.getvalue()
+        self.assertNotIn("TOKEN", logged)
+        self.assertNotIn("hooks.example", logged)
 
     def test_notify_safety_block_dedupes_on_reasons(self):
         transport = _FakeTransport()
@@ -220,6 +240,39 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.telegram_bot_token, "T")
         self.assertEqual(config.cooldown_seconds, 60)
+
+
+class RunLoggerSecretTests(unittest.TestCase):
+    def test_run_config_redacts_provider_and_alert_credentials(self):
+        from tradingagents.run_logger import RunAuditLogger
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                logger = RunAuditLogger()
+                run_id = logger.start_run(
+                    symbol="AAPL",
+                    trade_date="2026-07-11",
+                    config={
+                        "minimax_api_key": "minimax-secret",
+                        "alert_telegram_bot_token": "telegram-secret",
+                        "alert_telegram_chat_id": "private-chat",
+                        "alert_webhook_url": "https://example.test/private-hook",
+                        "daily_llm_token_budget": 12345,
+                    },
+                )
+                logger.finish_run(run_id=run_id)
+                path = next(Path("eval_results").glob("**/runs/*.json"))
+                stored = json.loads(path.read_text(encoding="utf-8"))["config"]
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(stored["minimax_api_key"], "[REDACTED]")
+        self.assertEqual(stored["alert_telegram_bot_token"], "[REDACTED]")
+        self.assertEqual(stored["alert_telegram_chat_id"], "[REDACTED]")
+        self.assertEqual(stored["alert_webhook_url"], "[REDACTED]")
+        self.assertEqual(stored["daily_llm_token_budget"], 12345)
 
 
 if __name__ == "__main__":

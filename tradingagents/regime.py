@@ -7,7 +7,7 @@ A cheap, fit-free regime filter over three observable dimensions:
   wild assets — whose own percentile history looks unremarkable — still
   read as turbulent.
 - **Trend**: price vs its SMA plus the SMA's recent slope (up/down/sideways).
-- **Liquidity**: recent average dollar volume vs a longer baseline
+- **Liquidity**: recent average share volume vs a longer baseline
   (thinning/normal/surging).
 
 Threshold rules were chosen over an HMM deliberately: practitioners get

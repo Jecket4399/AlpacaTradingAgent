@@ -81,6 +81,9 @@ class BracketExecutionTests(unittest.TestCase):
         order.order_class = "bracket"
         self.client.submit_order.return_value = order
 
+        disabled_guard = MagicMock()
+        disabled_guard.enabled = False
+
         self.patches = [
             patch(
                 "tradingagents.dataflows.alpaca_utils.get_alpaca_trading_client",
@@ -91,6 +94,10 @@ class BracketExecutionTests(unittest.TestCase):
                 "get_latest_quote",
                 return_value={"bid_price": 190.0, "ask_price": 190.1},
             ),
+            # These tests isolate broker protective-order behavior. The safety
+            # gate has its own integration tests and must not persist state in
+            # the developer's real ~/.tradingagents directory during pytest.
+            patch("tradingagents.safety.get_safety_guard", return_value=disabled_guard),
         ]
         for p in self.patches:
             p.start()

@@ -127,6 +127,29 @@ class CircuitBreakerTests(unittest.TestCase):
             guard.record_order_result(True)
             self.assertTrue(guard.check_order("AAPL", 100.0, account=ACCOUNT_OK).allowed)
 
+    def test_risk_reducing_exit_bypasses_breakers_but_not_kill_switch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp, max_consecutive_rejections=1)
+            guard.record_order_result(False)
+
+            exit_verdict = guard.check_order(
+                "AAPL",
+                0.0,
+                account={"equity": 80_000.0, "last_equity": 100_000.0},
+                risk_reducing=True,
+            )
+            self.assertTrue(exit_verdict.allowed)
+            self.assertEqual(
+                exit_verdict.checks["daily_loss"]["status"], "skipped"
+            )
+
+            guard.engage_kill_switch("operator halt")
+            self.assertFalse(
+                guard.check_order(
+                    "AAPL", 0.0, risk_reducing=True
+                ).allowed
+            )
+
 
 class LLMBudgetTests(unittest.TestCase):
     def test_budget_exhaustion_blocks_new_analysis(self):
@@ -249,6 +272,57 @@ class ExecutionIntegrationTests(unittest.TestCase):
             )
 
         guard.record_order_result.assert_called_with(True)
+
+    def test_loss_breaker_does_not_trap_an_existing_position(self):
+        from tradingagents.dataflows.alpaca_utils import AlpacaUtils
+
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp, max_consecutive_rejections=1)
+            guard.record_order_result(False)
+            with patch(
+                "tradingagents.safety.get_safety_guard", return_value=guard
+            ), patch.object(
+                AlpacaUtils,
+                "close_position",
+                return_value={"success": True},
+            ) as close_position:
+                result = AlpacaUtils.execute_trading_action(
+                    symbol="AAPL",
+                    current_position="LONG",
+                    signal="SELL",
+                    dollar_amount=10_000.0,
+                    allow_shorts=False,
+                )
+
+        self.assertTrue(result["success"])
+        close_position.assert_called_once_with("AAPL")
+
+    def test_position_flip_closes_first_then_blocks_new_exposure(self):
+        from tradingagents.dataflows.alpaca_utils import AlpacaUtils
+
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = make_guard(tmp, max_trade_notional_usd=100.0)
+            with patch(
+                "tradingagents.safety.get_safety_guard", return_value=guard
+            ), patch.object(
+                AlpacaUtils,
+                "close_position",
+                return_value={"success": True},
+            ) as close_position, patch.object(
+                AlpacaUtils, "place_market_order"
+            ) as place_order:
+                result = AlpacaUtils.execute_trading_action(
+                    symbol="AAPL",
+                    current_position="LONG",
+                    signal="SHORT",
+                    dollar_amount=1_000.0,
+                    allow_shorts=True,
+                )
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["safety_blocked"])
+        close_position.assert_called_once_with("AAPL")
+        place_order.assert_not_called()
 
 
 class RunLoggerBudgetFeedTests(unittest.TestCase):

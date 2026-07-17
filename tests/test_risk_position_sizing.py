@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
@@ -12,6 +12,7 @@ from tradingagents.dataflows.alpaca_utils import AlpacaUtils
 from tradingagents.risk.position_sizing import (
     PositionSizer,
     RiskParameters,
+    SizingDecision,
     compute_atr,
     kelly_position_fraction,
 )
@@ -302,6 +303,37 @@ class ExecuteTradeIntentRiskSizingTests(unittest.TestCase):
         self.assertIn("risk", result["error"].lower())
         execute.assert_not_called()
 
+    def test_risk_sizing_stop_is_forwarded_to_protective_order_execution(self):
+        sizing = SizingDecision(
+            approved=True,
+            notional=1_000.0,
+            stop_loss_price=95.0,
+            risk_amount=50.0,
+            caps_applied=["requested_notional"],
+            reason="test",
+        )
+        with patch.object(
+            AlpacaUtils, "compute_risk_sized_amount", return_value=sizing
+        ), patch.object(
+            AlpacaUtils,
+            "execute_trading_action",
+            return_value={"success": True, "symbol": "AAPL", "actions": []},
+        ) as execute:
+            result = AlpacaUtils.execute_trade_intent(
+                symbol="AAPL",
+                current_position="NEUTRAL",
+                trade_intent=_buy_intent(),
+                dollar_amount=1_000.0,
+                allow_shorts=False,
+                risk_params={},
+            )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            execute.call_args.kwargs["protective_prices"]["stop_loss_price"],
+            95.0,
+        )
+
     def test_risk_engine_data_failure_fails_open_with_warning(self):
         with patch.object(
             AlpacaUtils,
@@ -363,6 +395,28 @@ class ExecuteTradeIntentRiskSizingTests(unittest.TestCase):
         snapshot.assert_not_called()
         self.assertEqual(execute.call_args.kwargs["dollar_amount"], 10_000)
 
+    def test_risk_sizing_skipped_when_target_position_is_already_held(self):
+        with patch.object(
+            AlpacaUtils, "get_account_risk_snapshot"
+        ) as snapshot, patch.object(
+            AlpacaUtils,
+            "execute_trading_action",
+            return_value={"success": True, "symbol": "AAPL", "actions": []},
+        ) as execute:
+            result = AlpacaUtils.execute_trade_intent(
+                symbol="AAPL",
+                current_position="LONG",
+                trade_intent=_buy_intent(),
+                dollar_amount=10_000,
+                allow_shorts=False,
+                risk_params={},
+            )
+
+        self.assertTrue(result["success"])
+        snapshot.assert_not_called()
+        self.assertNotIn("risk_sizing", result)
+        self.assertEqual(execute.call_args.kwargs["dollar_amount"], 10_000)
+
     def test_default_call_without_risk_params_preserves_legacy_behavior(self):
         with patch.object(
             AlpacaUtils,
@@ -400,6 +454,27 @@ class CalcQtyPriceFailureTests(unittest.TestCase):
         buy_action = result["actions"][0]
         self.assertFalse(buy_action["result"]["success"])
         self.assertIn("price", buy_action["result"]["error"].lower())
+
+    def test_budget_below_one_share_does_not_exceed_the_notional_cap(self):
+        disabled_guard = MagicMock()
+        disabled_guard.enabled = False
+        with patch(
+            "tradingagents.safety.get_safety_guard", return_value=disabled_guard
+        ), patch.object(
+            AlpacaUtils,
+            "get_latest_quote",
+            return_value={"bid_price": 500.0, "ask_price": 501.0},
+        ), patch.object(AlpacaUtils, "place_market_order") as place_order:
+            result = AlpacaUtils.execute_trading_action(
+                symbol="AAPL",
+                current_position="NEUTRAL",
+                signal="BUY",
+                dollar_amount=100.0,
+                allow_shorts=False,
+            )
+
+        self.assertFalse(result["success"])
+        place_order.assert_not_called()
 
 
 if __name__ == "__main__":

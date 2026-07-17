@@ -204,11 +204,15 @@ class SafetyGuard:
         notional: float,
         account: Optional[Dict[str, float]] = None,
         position_value: Optional[float] = None,
+        risk_reducing: bool = False,
     ) -> SafetyVerdict:
         """Deterministic gate every outbound order must pass.
 
         `account` carries {"equity", "last_equity"} when available; checks
         that need missing data are reported as skipped rather than guessed.
+        Risk-reducing exits bypass exposure and circuit-breaker checks so a
+        loss halt cannot trap an existing position. The explicit kill switch
+        still blocks all broker order flow.
         """
         if not self.enabled:
             return SafetyVerdict(
@@ -229,6 +233,24 @@ class SafetyGuard:
             checks["kill_switch"] = {"status": "fail", "detail": reason}
         else:
             checks["kill_switch"] = {"status": "pass"}
+
+        if risk_reducing:
+            for name in (
+                "trade_notional",
+                "concentration",
+                "daily_loss",
+                "drawdown",
+                "rejection_streak",
+            ):
+                checks[name] = {
+                    "status": "skipped",
+                    "detail": "risk-reducing exit",
+                }
+            return SafetyVerdict(
+                allowed=not reasons,
+                reasons=reasons,
+                checks=checks,
+            )
 
         # Pre-trade: per-order notional cap.
         notional_value = _finite_float(notional) or 0.0

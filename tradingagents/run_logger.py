@@ -35,6 +35,43 @@ def _json_safe(value: Any) -> Any:
         return str(value)
 
 
+def _redact_sensitive_config(value: Any) -> Any:
+    """Remove credentials before persisting a run configuration."""
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            normalized = str(key).strip().lower()
+            sensitive = (
+                normalized in {
+                    "api_key",
+                    "secret",
+                    "password",
+                    "token",
+                    "webhook_url",
+                    "alert_webhook_url",
+                }
+                or normalized.endswith(
+                    (
+                        "_api_key",
+                        "_api_secret",
+                        "_secret_key",
+                        "_client_secret",
+                        "_password",
+                        "_bot_token",
+                        "_chat_id",
+                    )
+                )
+            )
+            redacted[str(key)] = (
+                "[REDACTED]" if sensitive and item not in (None, "")
+                else _redact_sensitive_config(item)
+            )
+        return redacted
+    if isinstance(value, (list, tuple, set)):
+        return [_redact_sensitive_config(item) for item in value]
+    return value
+
+
 class RunAuditLogger:
     """
     Persist a complete audit trail for each analysis run.
@@ -139,7 +176,7 @@ class RunAuditLogger:
                 "started_at": _utc_now_iso(),
                 "ended_at": None,
                 "status": "running",
-                "config": _json_safe(config or {}),
+                "config": _json_safe(_redact_sensitive_config(config or {})),
                 "metadata": _json_safe(metadata or {}),
                 "events": [],
                 "snapshots": {},

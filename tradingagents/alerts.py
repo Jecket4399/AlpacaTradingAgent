@@ -109,7 +109,10 @@ def send_alert(
             )
             channels.append("telegram")
         except Exception as exc:
-            print(f"[ALERTS] Telegram delivery failed: {exc}")
+            print(
+                f"[ALERTS] Telegram delivery failed "
+                f"({type(exc).__name__}); credential-bearing URL suppressed"
+            )
 
     if config.webhook_url:
         try:
@@ -119,7 +122,10 @@ def send_alert(
             )
             channels.append("webhook")
         except Exception as exc:
-            print(f"[ALERTS] Webhook delivery failed: {exc}")
+            print(
+                f"[ALERTS] Webhook delivery failed "
+                f"({type(exc).__name__}); URL suppressed"
+            )
 
     if channels:
         with _DEDUPE_LOCK:

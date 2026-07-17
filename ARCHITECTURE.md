@@ -30,7 +30,9 @@ and operators who want to know where things happen and why.
 
 Final decisions are executable actions (`BUY/HOLD/SELL` in investment mode,
 `LONG/NEUTRAL/SHORT` in trading mode), carried in a typed `TradeIntent`
-schema alongside advisory metadata that never triggers orders by itself.
+schema. Numeric stop-loss and take-profit controls can be submitted as
+broker-side bracket/OTO orders when enabled; qualitative controls remain
+advisory.
 
 ## Package map
 
@@ -39,7 +41,7 @@ schema alongside advisory metadata that never triggers orders by itself.
 | `tradingagents/graph/` | LangGraph orchestration. `trading_graph.py` builds the graph and owns the LLM clients, memories, and reflection; `setup.py` wires nodes; `conditional_logic.py` controls debate rounds; `propagation.py` creates initial state; `signal_processing.py` extracts the final signal; `checkpointer.py` optional SQLite resume. |
 | `tradingagents/agents/` | The agents themselves: `analysts/` (market, social, news, fundamentals, macro), `researchers/` (bull/bear), `managers/`, `trader/`, `risk_mgmt/`, plus `utils/` (agent states, memory, trading modes) and `schemas.py` (typed `TradeIntent`). |
 | `tradingagents/dataflows/` | Every external data source behind one interface: `alpaca_utils.py` (bars, quotes, account, orders, execution), Finnhub, Google News, Reddit, FRED macro, crypto sources, with a yfinance fallback for supported failures. `config.py` holds runtime config + API keys. |
-| `tradingagents/llm_clients/` | Provider adapters (OpenAI, Anthropic, Google, xAI, DeepSeek, Qwen, GLM, OpenRouter, Ollama, Azure, local endpoints) behind `create_llm_client`. |
+| `tradingagents/llm_clients/` | Provider adapters (OpenAI, Anthropic, Google, xAI, MiniMax, DeepSeek, Qwen, GLM, OpenRouter, Ollama, Azure, local endpoints) behind `create_llm_client`. |
 | `tradingagents/prompts/` | All agent prompts as editable text templates (`TRADINGAGENTS_PROMPT_DIR` overrides). |
 | `tradingagents/run_logger.py` | Append-only audit trail: every prompt, tool call, LLM call (with token usage), state snapshot, and final state per run under `eval_results/<symbol>/TradingAgentsStrategy_logs/runs/`. |
 | `tradingagents/default_config.py` | Single source of defaults; everything is overridable per run. |
@@ -86,6 +88,9 @@ Two complementary memories:
 |---|---|
 | `eval_results/<symbol>/TradingAgentsStrategy_logs/runs/*.json` | Full audit trail per run: config, events (prompts, tool calls, LLM calls with token usage), snapshots, final state, final signal. |
 | `~/.tradingagents/memory/trading_memory.md` | The decision log (path configurable). |
+| `~/.tradingagents/memory/agent_memory/` | Persistent per-agent ChromaDB reflection memories. |
+| `~/.tradingagents/safety/` | Safety high-water mark, rejection/token counters, and the optional `KILL_SWITCH` flag. |
+| `reports/YYYY-MM-DD.{md,html}` | Optional daily operations reports. |
 | `tradingagents/dataflows/data_cache/` | Cached market data. |
 | `eval_results/.../checkpoints` | Optional SQLite LangGraph checkpoints for resume. |
 
@@ -105,9 +110,10 @@ on the paper API — never develop against live trading.
 - On Windows, ChromaDB keeps store files open: use
   `TemporaryDirectory(ignore_cleanup_errors=True)` in tests.
 
-## In-flight contributions (open PRs)
+## Integrated contribution set
 
-Currently under review; each PR body documents its design in depth:
+These reviewed contributions were integrated together because several are
+stacked and share execution, configuration, and WebUI paths:
 
 | PR | Adds |
 |---|---|
