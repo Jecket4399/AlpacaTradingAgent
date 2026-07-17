@@ -2,6 +2,7 @@ import chromadb
 from chromadb.config import Settings
 from openai import OpenAI
 import numpy as np
+from datetime import date
 from pathlib import Path
 import re
 import uuid
@@ -89,11 +90,14 @@ class FinancialSituationMemory:
         if not embeddings:
             return
 
+        # created_at powers time-decay maintenance; an explicit value in
+        # extra_metadata (e.g. a backdated batch-taught lesson) wins.
+        base_metadata = {"created_at": date.today().isoformat()}
+        base_metadata.update(extra_metadata or {})
+
         self.situation_collection.add(
             documents=situations,
-            metadatas=[
-                {**(extra_metadata or {}), "recommendation": rec} for rec in advice
-            ],
+            metadatas=[{**base_metadata, "recommendation": rec} for rec in advice],
             embeddings=embeddings,
             ids=ids,
         )

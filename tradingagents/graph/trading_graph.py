@@ -337,17 +337,20 @@ class TradingAgentsGraph:
                 f"Realized return over {holding_days} trading days: "
                 f"{raw_return:+.1%} (alpha: {alpha_text})."
             )
-            self.reflector.reflect_on_outcome(
-                state,
-                returns_losses,
-                {
-                    "bull": self.bull_memory,
-                    "bear": self.bear_memory,
-                    "trader": self.trader_memory,
-                    "invest_judge": self.invest_judge_memory,
-                    "risk_manager": self.risk_manager_memory,
-                },
-            )
+            memories = {
+                "bull": self.bull_memory,
+                "bear": self.bear_memory,
+                "trader": self.trader_memory,
+                "invest_judge": self.invest_judge_memory,
+                "risk_manager": self.risk_manager_memory,
+            }
+            self.reflector.reflect_on_outcome(state, returns_losses, memories)
+            if self.config.get("memory_maintenance_enabled", True):
+                from tradingagents.agents.utils.memory_maintenance import (
+                    maintain_all_memories,
+                )
+
+                maintain_all_memories(memories, self.config)
         except Exception as exc:
             print(f"[REFLECTION] Outcome reflection skipped for {ticker} {trade_date}: {exc}")
 

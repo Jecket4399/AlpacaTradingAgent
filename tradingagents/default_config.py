@@ -19,6 +19,13 @@ DEFAULT_CONFIG = {
     # Feed realized outcomes back into the per-agent memories (5 quick-LLM
     # reflection calls per resolved decision). Requires OpenAI embeddings.
     "reflection_on_outcome_enabled": True,
+    # FinMem-style memory maintenance (arXiv:2311.13743): Ebbinghaus time
+    # decay with importance-scaled stability, near-duplicate pruning, and a
+    # per-collection size cap. Runs after outcome reflections.
+    "memory_maintenance_enabled": True,
+    "memory_max_entries_per_collection": 500,
+    "memory_duplicate_similarity_threshold": 0.97,
+    "memory_recency_purge_threshold": 0.05,
     "checkpoint_enabled": False,
     # "data_dir": "/Users/yluo/Documents/Code/ScAI/FR1-data",
     "data_dir": "data/ScAI/FR1-data",
