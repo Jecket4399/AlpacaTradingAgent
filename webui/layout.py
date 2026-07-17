@@ -15,6 +15,7 @@ from webui.components.reports_panel import create_reports_panel
 from webui.components.backtest_panel import create_backtest_panel
 from webui.components.alpaca_account import render_alpaca_account_section
 from webui.components.safety_panel import create_safety_panel
+from webui.components.cost_panel import create_cost_panel
 from webui.components.api_config_modal import create_api_config_modal
 from webui.config.constants import COLORS, REFRESH_INTERVALS
 
@@ -180,6 +181,7 @@ def create_main_layout():
             ]),
             reports_card,
             create_backtest_panel(),
+            create_cost_panel(),
             html.Div(className="mt-4"),
             create_footer(),
         ],
@@ -188,4 +190,4 @@ def create_main_layout():
         style={"backgroundColor": COLORS["background"]}
     )
     
-    return layout 
+    return layout
