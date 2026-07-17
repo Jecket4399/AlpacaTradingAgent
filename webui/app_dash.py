@@ -132,8 +132,20 @@ def run_app(port=7860, share=False, server_name="127.0.0.1", debug=False, max_th
     return 0
 
 
-# Create the app instance for use by other modules
-app = create_app()
+# The app instance is created lazily: building it eagerly at import time
+# fetches Alpaca account data, so any import of this module (directly or via
+# the webui package) would trigger network calls.
+_app = None
+
+
+def __getattr__(name):
+    global _app
+    if name == "app":
+        if _app is None:
+            _app = create_app()
+        return _app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 if __name__ == "__main__":
     run_app(debug=True) 

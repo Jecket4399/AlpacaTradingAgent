@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import time
 from datetime import datetime, timedelta
-from typing import Annotated, Union, Optional, List, Dict, Any
+from typing import Annotated, Union, Optional, List, Dict, Any, TYPE_CHECKING
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, StockLatestQuoteRequest, CryptoLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -15,7 +15,10 @@ from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, QueryOrderS
 from alpaca.common.enums import Sort
 from .config import get_api_key, get_alpaca_use_paper, get_config
 from .ticker_utils import TickerUtils
-from tradingagents.agents.schemas import TradeIntent, trade_intent_action
+# Imported lazily inside execute_trade_intent: a module-level import would
+# create a circular import (dataflows -> agents -> dataflows.interface).
+if TYPE_CHECKING:
+    from tradingagents.agents.schemas import TradeIntent
 
 
 # Fallback dictionary for company names
@@ -835,7 +838,7 @@ class AlpacaUtils:
     def execute_trade_intent(
         symbol: str,
         current_position: str,
-        trade_intent: Union[TradeIntent, Dict[str, Any]],
+        trade_intent: Union["TradeIntent", Dict[str, Any]],
         dollar_amount: float,
         allow_shorts: bool = False,
     ) -> dict:
@@ -845,6 +848,8 @@ class AlpacaUtils:
         method intentionally delegates to the existing simple market/close
         execution path until bracket/OCO/OTO order placement is implemented.
         """
+        from tradingagents.agents.schemas import TradeIntent, trade_intent_action
+
         try:
             intent = (
                 trade_intent
