@@ -59,8 +59,14 @@ class FinancialSituationMemory:
                 self._warned_embedding_failure = True
             return None
 
-    def add_situations(self, situations_and_advice):
-        """Add financial situations and their corresponding advice. Parameter is a list of tuples (situation, rec)"""
+    def add_situations(self, situations_and_advice, extra_metadata=None):
+        """Add financial situations and their corresponding advice.
+
+        `situations_and_advice` is a list of (situation, recommendation)
+        tuples. `extra_metadata`, when given, is merged into every entry's
+        metadata — used e.g. by batch teaching to tag lessons with their
+        source and an idempotency key.
+        """
         if not self.embeddings_enabled:
             return
 
@@ -85,10 +91,20 @@ class FinancialSituationMemory:
 
         self.situation_collection.add(
             documents=situations,
-            metadatas=[{"recommendation": rec} for rec in advice],
+            metadatas=[
+                {**(extra_metadata or {}), "recommendation": rec} for rec in advice
+            ],
             embeddings=embeddings,
             ids=ids,
         )
+
+    def has_metadata_value(self, key, value) -> bool:
+        """True when any stored entry carries `key == value` in its metadata."""
+        try:
+            found = self.situation_collection.get(where={key: value}, limit=1)
+        except Exception:
+            return False
+        return bool(found and found.get("ids"))
 
     def get_memories(self, current_situation, n_matches=1):
         """Find matching recommendations using OpenAI embeddings"""
