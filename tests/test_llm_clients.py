@@ -5,6 +5,7 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage
 
 from tradingagents.llm_clients import create_llm_client
+from tradingagents.llm_clients.anthropic_client import AnthropicClient
 from tradingagents.llm_clients.google_client import GoogleClient
 from tradingagents.llm_clients.openai_client import DeepSeekChatOpenAI
 
@@ -16,7 +17,8 @@ class LLMClientFactoryTests(unittest.TestCase):
             "local_openai": "gpt-4.1",
             "google": "gemini-2.5-flash",
             "anthropic": "claude-sonnet-4-6",
-            "xai": "grok-4-0709",
+            "xai": "grok-4.5",
+            "minimax": "MiniMax-M2.7",
             "deepseek": "deepseek-chat",
             "qwen": "qwen-plus",
             "glm": "glm-5",
@@ -35,7 +37,8 @@ class LLMClientFactoryTests(unittest.TestCase):
             "openai": ("gpt-4.1", "OPENAI_API_KEY"),
             "google": ("gemini-2.5-flash", "GOOGLE_API_KEY"),
             "anthropic": ("claude-sonnet-4-6", "ANTHROPIC_API_KEY"),
-            "xai": ("grok-4-0709", "XAI_API_KEY"),
+            "xai": ("grok-4.5", "XAI_API_KEY"),
+            "minimax": ("MiniMax-M2.7", "MINIMAX_API_KEY"),
             "deepseek": ("deepseek-chat", "DEEPSEEK_API_KEY"),
             "qwen": ("qwen-plus", "DASHSCOPE_API_KEY"),
             "glm": ("glm-5", "ZHIPU_API_KEY"),
@@ -102,6 +105,41 @@ class LLMClientFactoryTests(unittest.TestCase):
             kwargs = chat_cls.call_args.kwargs
             self.assertEqual(kwargs["thinking_level"], "low")
             self.assertNotIn("thinking_budget", kwargs)
+
+    def test_current_provider_models_build_with_expected_native_clients(self):
+        with patch("tradingagents.llm_clients.google_client.NormalizedChatGoogleGenerativeAI") as chat_cls:
+            GoogleClient("gemini-3.5-flash", api_key="test-key").get_llm()
+            self.assertEqual(chat_cls.call_args.kwargs["model"], "gemini-3.5-flash")
+
+        with patch("tradingagents.llm_clients.anthropic_client.NormalizedChatAnthropic") as chat_cls:
+            AnthropicClient("claude-sonnet-5", api_key="test-key").get_llm()
+            self.assertEqual(chat_cls.call_args.kwargs["model"], "claude-sonnet-5")
+
+        with patch("tradingagents.llm_clients.openai_client.NormalizedChatOpenAI") as chat_cls:
+            create_llm_client("xai", "grok-4.5", api_key="test-key").get_llm()
+            self.assertEqual(chat_cls.call_args.kwargs["model"], "grok-4.5")
+            self.assertEqual(chat_cls.call_args.kwargs["base_url"], "https://api.x.ai/v1")
+
+    def test_minimax_uses_official_openai_compatible_endpoint_and_custom_override(self):
+        with patch("tradingagents.llm_clients.openai_client.NormalizedChatOpenAI") as chat_cls:
+            create_llm_client("minimax", "MiniMax-M2.7", api_key="test-key").get_llm()
+            kwargs = chat_cls.call_args.kwargs
+            self.assertEqual(kwargs["model"], "MiniMax-M2.7")
+            self.assertEqual(kwargs["api_key"], "test-key")
+            self.assertEqual(kwargs["base_url"], "https://api.minimax.io/v1")
+
+        with patch("tradingagents.llm_clients.openai_client.NormalizedChatOpenAI") as chat_cls:
+            create_llm_client(
+                "minimax",
+                "MiniMax-future-model",
+                base_url="https://minimax-proxy.example/v1",
+                api_key="test-key",
+            ).get_llm()
+            self.assertEqual(chat_cls.call_args.kwargs["model"], "MiniMax-future-model")
+            self.assertEqual(
+                chat_cls.call_args.kwargs["base_url"],
+                "https://minimax-proxy.example/v1",
+            )
 
 
 if __name__ == "__main__":

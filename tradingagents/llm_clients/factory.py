@@ -7,6 +7,7 @@ _OPENAI_COMPATIBLE = (
     "openai",
     "local_openai",
     "xai",
+    "minimax",
     "deepseek",
     "qwen",
     "glm",

@@ -49,6 +49,15 @@ API_CONFIGS = [
         "icon": "fas fa-x"
     },
     {
+        "id": "minimax",
+        "name": "MiniMax API Key",
+        "env_var": "MINIMAX_API_KEY",
+        "placeholder": "Your MiniMax API key",
+        "help_url": "https://platform.minimax.io/user-center/basic-information/interface-key",
+        "help_text": "Required when using MiniMax models",
+        "icon": "fas fa-bolt"
+    },
+    {
         "id": "deepseek",
         "name": "DeepSeek API Key",
         "env_var": "DEEPSEEK_API_KEY",
