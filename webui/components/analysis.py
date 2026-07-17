@@ -94,6 +94,26 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
         except Exception as exc:
             print(f"[TRADE] Portfolio sizing unavailable for {ticker}: {exc}")
 
+        # Regime-aware sizing: hostile regimes shrink NEW exposure, never
+        # flip the decision. Failure-isolated - any problem keeps the
+        # requested amount untouched.
+        if str(recommended_action).upper() in ("BUY", "LONG"):
+            try:
+                from tradingagents.dataflows.config import get_config
+                from tradingagents.regime import RegimeConfig, regime_risk_multiplier
+
+                multiplier = regime_risk_multiplier(
+                    ticker, config=RegimeConfig.from_config(get_config() or {})
+                )
+                if multiplier < 1.0:
+                    trade_amount = trade_amount * multiplier
+                    print(
+                        f"[TRADE] Regime filter scaled {ticker} amount to "
+                        f"${trade_amount:,.0f} (x{multiplier:.2f})"
+                    )
+            except Exception as exc:
+                print(f"[TRADE] Regime sizing unavailable for {ticker}: {exc}")
+
         # Get current position
         current_position = AlpacaUtils.get_current_position_state(ticker)
         print(f"[TRADE] Current position for {ticker}: {current_position}")
