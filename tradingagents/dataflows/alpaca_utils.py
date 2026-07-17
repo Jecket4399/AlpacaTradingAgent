@@ -1184,6 +1184,35 @@ class AlpacaUtils:
         return {"stop_loss_price": stop_price, "take_profit_price": target_price}
 
     @staticmethod
+    def _safety_context(symbol: str):
+        """Best-effort account snapshot for the safety layer's breakers.
+
+        Returns (account, position_value); either may be None when the broker
+        is unreachable — the guard reports those checks as skipped instead of
+        guessing.
+        """
+        try:
+            client = get_alpaca_trading_client()
+            acct = client.get_account()
+            account = {
+                "equity": float(acct.equity),
+                "last_equity": float(acct.last_equity),
+            }
+        except Exception:
+            return None, None
+
+        position_value = 0.0
+        try:
+            key = symbol.upper().replace("/", "")
+            for pos in client.get_all_positions():
+                if pos.symbol.upper() == key:
+                    position_value = abs(float(pos.market_value))
+                    break
+        except Exception:
+            position_value = None
+        return account, position_value
+
+    @staticmethod
     def execute_trading_action(symbol: str, current_position: str, signal: str,
                              dollar_amount: float, allow_shorts: bool = False,
                              protective_prices: Optional[Dict[str, float]] = None) -> dict:
@@ -1201,8 +1230,45 @@ class AlpacaUtils:
             Dictionary with execution results
         """
         try:
+            # Deterministic safety gate — consulted before any broker call and
+            # entirely independent of the agents' reasoning. Cheap local checks
+            # (kill switch, notional cap, rejection streak) run first; account-
+            # based circuit breakers run only if those pass.
+            guard = None
+            try:
+                from tradingagents.safety import get_safety_guard
+
+                guard = get_safety_guard()
+            except Exception:
+                guard = None
+
+            if guard is not None and guard.enabled:
+                verdict = guard.check_order(symbol, dollar_amount)
+                if verdict.allowed:
+                    account_state, position_value = AlpacaUtils._safety_context(symbol)
+                    if account_state:
+                        verdict = guard.check_order(
+                            symbol,
+                            dollar_amount,
+                            account=account_state,
+                            position_value=position_value,
+                        )
+                if not verdict.allowed:
+                    error_msg = "Safety layer blocked order flow: " + " ".join(verdict.reasons)
+                    print(f"[SAFETY] {error_msg}")
+                    return {
+                        "success": False,
+                        "safety_blocked": True,
+                        "symbol": symbol,
+                        "current_position": current_position,
+                        "signal": signal,
+                        "actions": [],
+                        "error": error_msg,
+                        "safety_checks": verdict.checks,
+                    }
+
             results = []
-            
+
             # Helper to calculate integer quantity for any orders (used by both trading modes)
             def _calc_qty(sym: str, amount: float) -> Optional[int]:
                 """Return integer share qty from the latest quote, or None when no
@@ -1348,10 +1414,18 @@ class AlpacaUtils:
             # Check if any critical actions failed
             has_failures = False
             for action in results:
-                if "result" in action and not action["result"].get("success", True):
-                    has_failures = True
-                    break
-                    
+                if "result" in action:
+                    order_success = bool(action["result"].get("success", True))
+                    if guard is not None and guard.enabled:
+                        # Feed the consecutive-rejection circuit breaker.
+                        try:
+                            guard.record_order_result(order_success)
+                        except Exception:
+                            pass
+                    if not order_success:
+                        has_failures = True
+
+
             return {
                 "success": not has_failures,
                 "symbol": symbol,

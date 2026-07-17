@@ -395,6 +395,19 @@ def start_analysis(
 ):
     """Start real-time analysis function for the UI"""
 
+    # Deterministic LLM budget gate (production safety layer): refuse to burn
+    # tokens on a new analysis once the daily budget is exhausted.
+    try:
+        from tradingagents.safety import get_safety_guard
+
+        budget_verdict = get_safety_guard().check_llm_budget()
+    except Exception:
+        budget_verdict = None
+    if budget_verdict is not None and not budget_verdict.allowed:
+        message = " ".join(budget_verdict.reasons)
+        print(f"[SAFETY] {message}")
+        return message
+
     # Parse selected analysts
     selected_analysts = []
     if analysts_market:
