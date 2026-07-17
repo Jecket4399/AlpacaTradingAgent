@@ -10,6 +10,15 @@ DEFAULT_CONFIG = {
         os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md"),
     ),
     "memory_log_max_entries": None,
+    # Self-learning memory: when set, the per-agent ChromaDB reflection
+    # memories persist across restarts instead of resetting each session.
+    "agent_memory_dir": os.getenv(
+        "TRADINGAGENTS_AGENT_MEMORY_DIR",
+        os.path.join(_TRADINGAGENTS_HOME, "memory", "agent_memory"),
+    ),
+    # Feed realized outcomes back into the per-agent memories (5 quick-LLM
+    # reflection calls per resolved decision). Requires OpenAI embeddings.
+    "reflection_on_outcome_enabled": True,
     "checkpoint_enabled": False,
     # "data_dir": "/Users/yluo/Documents/Code/ScAI/FR1-data",
     "data_dir": "data/ScAI/FR1-data",
