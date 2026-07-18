@@ -1,5 +1,6 @@
 # alpaca_utils.py
 
+import math
 import os
 import pandas as pd
 import time
@@ -691,7 +692,7 @@ class AlpacaUtils:
             } 
 
     @staticmethod
-    def get_current_position_state(symbol: str) -> str:
+    def get_current_position_state(symbol: str, strict: bool = False) -> str:
         """Return current position state for a symbol in the Alpaca account.
 
         Args:
@@ -699,10 +700,15 @@ class AlpacaUtils:
                     be treated the same way as equities – a positive quantity is
                     considered a *LONG* position while a negative quantity (should
                     Alpaca ever allow it) is considered *SHORT*.
+            strict: When True, re-raise broker/API errors instead of defaulting
+                    to "NEUTRAL".  The NEUTRAL fallback exists so agent prompts
+                    keep working through an outage; order execution paths must
+                    pass strict=True, because acting on a guessed NEUTRAL can
+                    re-buy an existing position or silently skip an exit.
 
         Returns:
-            One of "LONG", "SHORT", or "NEUTRAL" if no open position exists or we
-            encounter an error.
+            One of "LONG", "SHORT", or "NEUTRAL" if no open position exists (or,
+            when strict is False, when we encounter an error).
         """
         try:
             # Skip if credentials are missing – the helper will raise inside but we
@@ -723,7 +729,23 @@ class AlpacaUtils:
                     try:
                         qty = float(pos.qty)
                     except (ValueError, AttributeError):
+                        if strict:
+                            # A corrupted qty on the *target* position is as
+                            # unsafe as an outage for an execution caller:
+                            # guessing NEUTRAL here re-buys a real holding or
+                            # skips a real exit. Let it propagate.
+                            raise
                         qty = 0.0
+
+                    if not math.isfinite(qty):
+                        # e.g. qty "nan"/"inf" parses without raising but is
+                        # not a real position size. Same fail-open risk as a
+                        # malformed string for an execution caller.
+                        if strict:
+                            raise ValueError(
+                                f"non-finite position qty for {symbol}: {pos.qty!r}"
+                            )
+                        return "NEUTRAL"
 
                     if qty > 0:
                         return "LONG"
@@ -736,6 +758,11 @@ class AlpacaUtils:
             # If we fall through the loop there is no open position for symbol.
             return "NEUTRAL"
         except Exception as e:
+            if strict:
+                # Execution callers must not mistake an outage for "no
+                # position": a wrong NEUTRAL turns a BUY into pyramiding an
+                # existing holding and a SELL into a skipped exit.
+                raise
             # Log and default to neutral so agent prompts still work.
             print(f"Error determining current position for {symbol}: {e}")
             return "NEUTRAL"
