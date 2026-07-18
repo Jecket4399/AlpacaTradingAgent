@@ -114,8 +114,24 @@ def execute_trade_after_analysis(ticker, allow_shorts, trade_amount):
             except Exception as exc:
                 print(f"[TRADE] Regime sizing unavailable for {ticker}: {exc}")
 
-        # Get current position
-        current_position = AlpacaUtils.get_current_position_state(ticker)
+        # Get current position. strict=True: a broker outage here must abort
+        # the trade instead of reading as NEUTRAL — acting on a guessed
+        # NEUTRAL re-buys an existing holding on BUY (pyramiding every loop
+        # iteration the outage persists) and skips the exit on SELL.
+        try:
+            current_position = AlpacaUtils.get_current_position_state(ticker, strict=True)
+        except Exception as e:
+            print(
+                f"[TRADE] Could not verify current position for {ticker} ({e}); "
+                "skipping trade execution rather than guessing NEUTRAL"
+            )
+            state["trading_results"] = {
+                "error": (
+                    f"Position check failed for {ticker}; trade skipped to avoid "
+                    f"acting on an unverified position: {e}"
+                )
+            }
+            return
         print(f"[TRADE] Current position for {ticker}: {current_position}")
 
         # Execute the typed intent when present; fall back to legacy signal execution
