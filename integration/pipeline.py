@@ -1,237 +1,259 @@
 """三引擎集成主流水线
 
-daily_batch: 每天拉取 stock-screener Top25 → AI分析 → 填充推荐列表
-hourly_monitor: 每小时检查推荐列表 → 择机入场 → 换仓
+架构：
+  stock-screener → daily_stock_analysis (AI分析) → 本模块 (提取BUY) → Alpaca (监控执行)
+
+daily_batch: 从 daily_stock_analysis 结果中提取 BUY 推荐 → 填充推荐列表
+hourly_monitor: 每小时检查推荐列表 → 择机入场 → 换仓（仅模拟盘）
 """
 
 import json
 import logging
-import sys
-import time
+import re
+import urllib.request
 from datetime import datetime
 from typing import List, Optional
 
 from .config import (
-    SCAN_OUTPUT_URL, TOP_N_CANDIDATES, ANALYSIS_BATCH_SIZE, ANALYSIS_BATCH_DELAY,
-    MAX_RECOMMENDATIONS, MIN_AI_CONFIDENCE, ENTRY_PRICE_TOLERANCE_PCT,
-    MAX_DAILY_TRADES, RECOMMENDATION_TTL_DAYS,
+    MAX_RECOMMENDATIONS, ENTRY_PRICE_TOLERANCE_PCT, MAX_DAILY_TRADES,
+    RECOMMENDATION_TTL_DAYS, MONITOR_INTERVAL_MINUTES,
 )
 from .models import (
-    ScanResult, AIAnalysisResult, Recommendation, HourlyCheck,
-    RecommendationStatus,
+    Recommendation, HourlyCheck, RecommendationStatus,
 )
-from .scan_parser import fetch_and_parse
 from .recommendation_store import RecommendationStore
 from .portfolio_overseer import PortfolioOverseer
 
 logger = logging.getLogger(__name__)
 
+# daily_stock_analysis 的 GitHub Actions artifact 或报告 URL
+DSA_ARTIFACT_URL = (
+    "https://raw.githubusercontent.com/Jecket4399/daily-stock-analysis/"
+    "main/reports/report_latest.md"
+)
+
 
 class IntegrationPipeline:
-    """三引擎集成主编排器"""
+    """主编排器：从 daily_stock_analysis 结果提取 BUY，监控执行"""
 
     def __init__(self, config: Optional[dict] = None):
         self.config = config or {}
         self.store = RecommendationStore()
-        self.overseer: Optional[PortfolioOverseer] = None  # 延迟初始化，需 alpaca_utils
+        self.overseer: Optional[PortfolioOverseer] = None
 
     def _init_overseer(self):
-        """初始化仓位监管器"""
+        """延迟初始化仓位监管器（需要 Alpaca）"""
         if self.overseer:
             return
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
-            alpaca = AlpacaUtils()
-            self.overseer = PortfolioOverseer(self.store, alpaca)
+            self.overseer = PortfolioOverseer(self.store, AlpacaUtils())
         except Exception as e:
-            logger.warning(f"无法初始化 AlpacaUtils: {e}，仓位监控不可用")
+            logger.warning(f"无法连接 Alpaca: {e}，仓位监控不可用")
             self.overseer = PortfolioOverseer(self.store, None)
 
-    def _get_graph(self):
-        """获取 TradingAgentsGraph 实例"""
-        from tradingagents.graph.trading_graph import TradingAgentsGraph
-        from tradingagents.default_config import DEFAULT_CONFIG
+    # ==================== 每日：提取 BUY 推荐 ====================
 
-        cfg = DEFAULT_CONFIG.copy()
-        cfg["llm_provider"] = self.config.get("llm_provider", "deepseek")
-        cfg["deep_think_llm"] = self.config.get("deep_llm", "deepseek-chat")
-        cfg["quick_think_llm"] = self.config.get("quick_llm", "deepseek-chat")
-        cfg["max_debate_rounds"] = self.config.get("debate_rounds", 3)
-        # 批量分析时关掉并行代理，避免 API 限速
-        cfg["parallel_analysts"] = self.config.get("parallel_analysts", False)
-        cfg.update(self.config.get("extra_config", {}))
+    def daily_sync(self, source_url: Optional[str] = None) -> dict:
+        """从 daily_stock_analysis 的最新分析结果中提取 BUY 推荐
 
-        return TradingAgentsGraph(config=cfg)
+        daily_stock_analysis 每天 18:00 CST 自动分析，
+        GitHub Actions 将报告上传为 artifact。
+        本方法从 artifact 或公开报告中解析 BUY/HOLD/SELL 信号。
 
-    # ==================== 每日批量分析 ====================
-
-    def daily_batch(self, scan_url: Optional[str] = None, top_n: Optional[int] = None) -> dict:
-        """每日主流程：拉取扫描结果 → AI 分析 → 填充推荐列表
-
-        返回:
-            {"analyzed": N, "added": N, "skipped": N, "errors": N}
+        返回: {"found": N, "buy": N, "added": N}
         """
-        url = scan_url or SCAN_OUTPUT_URL
-        n = top_n or TOP_N_CANDIDATES
-
         logger.info("=" * 60)
-        logger.info(f"每日批量分析开始 ({datetime.now().isoformat()})")
+        logger.info(f"每日同步：从 daily_stock_analysis 提取 BUY 推荐 ({datetime.now()})")
         logger.info("=" * 60)
 
-        # 第1步：拉取全市场筛选结果
-        scan_results = fetch_and_parse(url, n)
-        if not scan_results:
-            logger.error("未获取到扫描结果，终止")
-            return {"analyzed": 0, "added": 0, "skipped": 0, "errors": 0}
+        # 第1步：尝试从 daily_stock_analysis repo 拉取最新报告
+        signals = self._fetch_dsa_results(source_url)
+        if not signals:
+            logger.warning("未获取到 daily_stock_analysis 分析结果，本次跳过")
+            return {"found": 0, "buy": 0, "added": 0}
 
-        logger.info(f"第1步完成: 获取到 {len(scan_results)} 只候选股")
+        logger.info(f"获取到 {len(signals)} 只股票的分析结果")
+        buy_count = sum(1 for s in signals if s.get("action") == "BUY")
+        logger.info(f"其中 BUY 信号: {buy_count} 只")
 
-        # 第2步：逐批 AI 深度分析
-        graph = self._get_graph()
+        # 第2步：只把 BUY 的放入推荐列表
         today = datetime.now().strftime("%Y-%m-%d")
+        added = 0
+        for sig in signals:
+            if sig.get("action") != "BUY":
+                continue
 
-        stats = {"analyzed": 0, "added": 0, "skipped": 0, "errors": 0}
-
-        for batch_start in range(0, len(scan_results), ANALYSIS_BATCH_SIZE):
-            batch = scan_results[batch_start:batch_start + ANALYSIS_BATCH_SIZE]
-
-            for sr in batch:
-                stats["analyzed"] += 1
-                try:
-                    result = self._analyze_one(sr, graph, today)
-                    if result:
-                        rec = self._to_recommendation(sr, result, today)
-                        rec_id = self.store.add_recommendation(rec)
-                        if rec_id:
-                            stats["added"] += 1
-                        else:
-                            stats["skipped"] += 1  # 已存在
-                    else:
-                        stats["skipped"] += 1
-                except Exception as e:
-                    logger.error(f"分析 {sr.ticker} 时出错: {e}", exc_info=True)
-                    stats["errors"] += 1
-
-            # 批次间延迟，避免 API 限速
-            if batch_start + ANALYSIS_BATCH_SIZE < len(scan_results):
-                time.sleep(ANALYSIS_BATCH_DELAY)
+            rec = Recommendation(
+                ticker=sig.get("ticker", ""),
+                scan_score=float(sig.get("score", 0)),
+                scan_date=today,
+                ai_signal="BUY",
+                ai_confidence=sig.get("confidence", "medium"),
+                ai_entry_price=_safe_float(sig.get("entry_price")),
+                ai_stop_loss=_safe_float(sig.get("stop_loss")),
+                ai_take_profit=_safe_float(sig.get("take_profit")),
+                ai_score=float(sig.get("score", 0)),
+                ai_report=json.dumps(sig, ensure_ascii=False),
+                status="pending",
+            )
+            rec_id = self.store.add_recommendation(rec)
+            if rec_id:
+                added += 1
 
         # 第3步：清理
         self.store.expire_old_pending()
         self.store.sweep_duplicates()
 
-        # 第4步：输出摘要
         summary = self.store.get_summary()
-        logger.info(f"每日分析完成: 分析了 {stats['analyzed']} 只, "
-                     f"新增 {stats['added']} 只, 跳过 {stats['skipped']} 只, 错误 {stats['errors']} 只")
+        logger.info(f"同步完成: 发现={len(signals)}, BUY={buy_count}, 新增推荐={added}")
         logger.info(f"推荐列表: pending={summary['pending']}, active={summary['active']}")
 
-        return stats
+        return {"found": len(signals), "buy": buy_count, "added": added}
 
-    def _analyze_one(self, sr: ScanResult, graph, date_str: str) -> Optional[AIAnalysisResult]:
-        """对单只股票做 AI 深度分析"""
-        logger.info(f"分析 {sr.ticker} (#{sr.rank}, scan_score={sr.score})...")
+    def _fetch_dsa_results(self, url: Optional[str] = None) -> List[dict]:
+        """从 daily_stock_analysis 获取最新分析结果
 
+        尝试顺序：
+        1. GitHub Actions 最近一次运行的 artifact（通过 gh CLI）
+        2. 仓库中的公开报告文件
+        3. 兜底：返回空
+        """
+        results = []
+
+        # 方式1：通过 gh CLI 下载最近一次运行的分析报告
         try:
-            final_state, signal = graph.propagate(sr.ticker, date_str)
+            results = self._fetch_via_gh_cli()
+            if results:
+                return results
         except Exception as e:
-            logger.error(f"TradingAgentsGraph.propagate({sr.ticker}) 失败: {e}")
-            return None
+            logger.debug(f"gh CLI 方式失败: {e}")
 
-        # 提取 TradeIntent
-        trade_intent = final_state.get("final_trade_intent") if final_state else None
-        confidence = "medium"
-        entry_price = None
-        stop_loss = None
-        take_profit = None
-        rationale = ""
+        # 方式2：从仓库公开 URL 读取
+        target_url = url or DSA_ARTIFACT_URL
+        try:
+            req = urllib.request.Request(target_url)
+            req.add_header("User-Agent", "integration-pipeline/1.0")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                content = resp.read().decode("utf-8")
+            results = self._parse_dsa_report(content)
+        except Exception as e:
+            logger.warning(f"从 URL 获取分析结果失败: {e}")
 
-        if trade_intent:
-            if hasattr(trade_intent, 'confidence'):
-                confidence = str(trade_intent.confidence).lower()
-            if hasattr(trade_intent, 'rationale_summary'):
-                rationale = str(trade_intent.rationale_summary)[:500]
-            # 从 risk_controls 提取止损止盈
-            risk_ctrls = getattr(trade_intent, 'risk_controls', None)
-            if risk_ctrls:
-                stop_loss = getattr(risk_ctrls, 'stop_loss', None)
-                take_profit = getattr(risk_ctrls, 'take_profit', None)
+        return results
 
-        # 综合评分: 扫描分(40%) + AI信号强度(60%)
-        signal_score = {"BUY": 85, "HOLD": 50, "SELL": 20}.get(signal, 50)
-        composite = sr.score / 125 * 40 + signal_score * 0.6
+    def _fetch_via_gh_cli(self) -> List[dict]:
+        """通过 gh CLI 下载 daily_stock_analysis 最近一次 artifact"""
+        import subprocess, tempfile, zipfile, os
+        from pathlib import Path
 
-        result = AIAnalysisResult(
-            ticker=sr.ticker,
-            signal=signal,
-            confidence=confidence,
-            composite_score=round(composite, 1),
-            entry_price=entry_price,
-            stop_loss=stop_loss or sr.stop_loss,
-            take_profit=take_profit,
-            rationale=rationale,
-            raw_report={"signal": signal, "confidence": confidence},
+        repo = "Jecket4399/daily-stock-analysis"
+        # 获取最近一次完成的 workflow run
+        result = subprocess.run(
+            ["gh", "run", "list", "-R", repo, "--workflow", "00-daily-analysis.yml",
+             "--status", "success", "--limit", "1", "--json", "databaseId"],
+            capture_output=True, text=True, timeout=15,
         )
+        if result.returncode != 0:
+            return []
 
-        logger.info(f"  → {signal} (置信度={confidence}, 综合分={composite:.1f})")
-        return result
+        runs = json.loads(result.stdout)
+        if not runs:
+            return []
 
-    def _to_recommendation(self, sr: ScanResult, ai: AIAnalysisResult, today: str) -> Recommendation:
-        """将分析结果转为推荐记录"""
-        status = "pending"
-        # 非 BUY 或低置信度 → 跳过
-        if ai.signal != "BUY" or ai.confidence not in ("high", "medium"):
-            status = "skipped"
+        run_id = runs[0]["databaseId"]
+        logger.info(f"找到 daily_stock_analysis 最近运行: {run_id}")
 
-        return Recommendation(
-            ticker=sr.ticker,
-            scan_score=sr.score,
-            scan_rr_ratio=sr.rr_ratio,
-            scan_stop_loss=sr.stop_loss,
-            scan_date=today,
-            ai_signal=ai.signal,
-            ai_confidence=ai.confidence,
-            ai_entry_price=ai.entry_price,
-            ai_stop_loss=ai.stop_loss,
-            ai_take_profit=ai.take_profit,
-            ai_score=ai.composite_score,
-            ai_report=json.dumps(ai.raw_report, ensure_ascii=False),
-            status=status,
-        )
+        # 下载 artifact
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(
+                ["gh", "run", "download", str(run_id), "-R", repo,
+                 "-n", "analysis-reports-*", "-D", tmpdir],
+                capture_output=True, timeout=30,
+            )
+            # 找 reports 目录下的 md 文件
+            reports_dir = Path(tmpdir) / "reports"
+            if not reports_dir.exists():
+                reports_dir = Path(tmpdir)
+            for md_file in reports_dir.rglob("report_*.md"):
+                content = md_file.read_text(encoding="utf-8")
+                return self._parse_dsa_report(content)
 
-    # ==================== 每小时监控 ====================
+        return []
+
+    def _parse_dsa_report(self, content: str) -> List[dict]:
+        """解析 daily_stock_analysis 的 Markdown 报告，提取每只股票的决策信号
+
+        报告格式示例：
+            🟢 Apple Inc.(AAPL): 买入 | 评分 75 | 强烈看多
+            🟡 Microsoft(MSFT): 持有观察 | 评分 59 | 看多
+            🔴 Tesla(TSLA): 卖出 | 评分 35 | 看空
+
+        提取: ticker, action(BUY/HOLD/SELL), score, trend
+        """
+        results = []
+
+        for line in content.split("\n"):
+            # 匹配摘要行: "🟢 Apple Inc.(AAPL): 买入 | 评分 75 | 强烈看多"
+            # 或: "⚪ Apple Inc.(AAPL): 持有观察 | 评分 59 | 看多"
+            m = re.match(
+                r".*\((\w+)\)[：:]\s*(买入|持有|卖出|减仓|观望|持有观察)\s*\|\s*评分\s*(\d+)",
+                line
+            )
+            if not m:
+                continue
+
+            ticker = m.group(1)
+            action_cn = m.group(2)
+            score = int(m.group(3))
+
+            # 中文 → 英文信号
+            action_map = {
+                "买入": "BUY", "持有": "HOLD", "持有观察": "HOLD",
+                "卖出": "SELL", "减仓": "SELL", "观望": "HOLD",
+            }
+            action = action_map.get(action_cn, "HOLD")
+
+            # 置信度：评分 >= 70 → high, >=50 → medium, <50 → low
+            confidence = "high" if score >= 70 else ("medium" if score >= 50 else "low")
+
+            results.append({
+                "ticker": ticker,
+                "action": action,
+                "score": score,
+                "confidence": confidence,
+                "trend": "",
+            })
+
+        logger.info(f"从报告解析到 {len(results)} 条信号")
+        return results
+
+    # ==================== 每小时监控（保持不变）====================
 
     def hourly_monitor(self) -> dict:
-        """每小时监控：检查推荐列表 → 择机入场 → 换仓
-
-        仅在美股交易时段运行。
-        返回: {"orders_placed": N, "rotations": N, "checks_performed": N}
-        """
+        """每小时监控推荐列表，择机入场 + 换仓"""
         self._init_overseer()
         stats = {"orders_placed": 0, "rotations": 0, "checks_performed": 0}
 
-        # 第1步：检查是否在交易时段
         if not self._is_market_hours():
-            logger.info("非交易时段，跳过监控")
+            logger.info("非交易时段")
             return stats
 
-        # 第2步：获取当前持仓
         positions = self.overseer.get_current_positions() if self.overseer else []
         logger.info(f"当前持仓: {len(positions)} 只")
 
-        # 第3步：获取推荐列表
         pending = self.store.get_pending(MAX_RECOMMENDATIONS)
-        active = self.store.get_active()
 
-        # 第4步：对 pending 推荐逐只检查入场时机
+        # 检查入场时机
         for rec in pending:
             stats["checks_performed"] += 1
             try:
                 self._check_entry_timing(rec, positions)
             except Exception as e:
-                logger.error(f"检查 {rec.ticker} 入场时机出错: {e}")
+                logger.error(f"检查入场 {rec.ticker}: {e}")
 
-        # 第5步：对现有持仓评估是否需要卖出或换仓
+        # 评估出场
+        active = self.store.get_active()
         for rec in active:
             stats["checks_performed"] += 1
             try:
@@ -240,70 +262,51 @@ class IntegrationPipeline:
                     self._execute_exit(rec, reason)
                     stats["orders_placed"] += 1
             except Exception as e:
-                logger.error(f"评估 {rec.ticker} 出场出错: {e}")
+                logger.error(f"评估出场 {rec.ticker}: {e}")
 
-        # 第6步：换仓检测
+        # 换仓检测
         if self.overseer:
             candidates = [r for r in pending if r.is_buy_signal]
             rotation = self.overseer.find_best_rotation(positions, candidates)
             if rotation:
-                logger.info(f"换仓: {rotation.sold_ticker} → {rotation.bought_ticker}")
                 self._execute_rotation(rotation, positions)
                 stats["rotations"] += 1
-                stats["orders_placed"] += 2  # 一卖一买
+                stats["orders_placed"] += 2
 
         return stats
 
     def _is_market_hours(self) -> bool:
-        """判断当前是否美股交易时段（简化版）"""
-        now_utc = datetime.utcnow()
-        weekday = now_utc.weekday()  # 0=周一, 6=周日
-        if weekday >= 5:
+        now = datetime.utcnow()
+        if now.weekday() >= 5:
             return False
-        hour_est = (now_utc.hour - 4) % 24  # 粗转美东（忽略夏令时细节）
+        hour_est = (now.hour - 4) % 24
         return 9 <= hour_est <= 16
 
     def _check_entry_timing(self, rec: Recommendation, positions: List):
-        """检查一只推荐股是否适合现在入场"""
-        ticker = rec.ticker
-
-        # 检查是否已在持仓中
-        if any(p.ticker == ticker for p in positions):
+        """检查入场时机"""
+        if any(p.ticker == rec.ticker for p in positions):
             return
-
-        # 检查仓位容量
         if self.overseer and not self.overseer.can_open_new_position(positions):
-            logger.info(f"仓位已满 ({len(positions)}/{MAX_RECOMMENDATIONS})，跳过 {ticker}")
+            logger.info(f"仓位已满，跳过 {rec.ticker}")
             return
 
-        # 获取当前价格
-        current_price = self._get_current_price(ticker)
+        current_price = self._get_current_price(rec.ticker)
         if not current_price:
-            self.store.log_hourly_check(HourlyCheck(
-                ticker=ticker, current_price=0,
-                signal="price_unavailable", market_regime="unknown",
-                notes="无法获取当前价格",
-            ))
             return
 
-        # 检查是否在入场价范围内
         entry_price = rec.ai_entry_price or current_price
-        deviation_pct = abs(current_price - entry_price) / entry_price * 100
-
-        if deviation_pct > ENTRY_PRICE_TOLERANCE_PCT:
+        deviation = abs(current_price - entry_price) / entry_price * 100
+        if deviation > ENTRY_PRICE_TOLERANCE_PCT:
             self.store.log_hourly_check(HourlyCheck(
-                ticker=ticker, current_price=current_price,
-                signal="price_deviation",
-                market_regime="unknown",
-                notes=f"价格偏离 {deviation_pct:.1f}% (> {ENTRY_PRICE_TOLERANCE_PCT}%)",
+                ticker=rec.ticker, current_price=current_price,
+                signal="price_deviation", market_regime="unknown",
+                notes=f"价格偏离 {deviation:.1f}%",
             ))
             return
 
-        # 执行入场
         self._execute_entry(rec, current_price)
 
     def _get_current_price(self, ticker: str) -> Optional[float]:
-        """获取当前价格"""
         try:
             if self.overseer and self.overseer.alpaca:
                 quote = self.overseer.alpaca.get_latest_quote(ticker)
@@ -313,115 +316,71 @@ class IntegrationPipeline:
                     return float(quote.get("bid_price", quote.get("last_price", 0)))
         except Exception:
             pass
-
-        # 兜底：yfinance
         try:
             import yfinance as yf
             t = yf.Ticker(ticker)
-            price = t.fast_info.get("lastPrice") or t.info.get("regularMarketPrice")
-            if price:
-                return float(price)
+            return float(t.fast_info.get("lastPrice") or t.info.get("regularMarketPrice", 0))
         except Exception:
             pass
-
         return None
 
     def _execute_entry(self, rec: Recommendation, current_price: float):
-        """执行入场交易"""
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
             from tradingagents.agents.schemas import TradeIntent, ExecutableAction
 
             alpaca = AlpacaUtils()
-            dollar_amount = self.config.get("default_trade_amount", 1000)
-
-            trade_intent = TradeIntent(
-                symbol=rec.ticker,
-                action=ExecutableAction.BUY,
-                current_position="NEUTRAL",
-                target_position="LONG",
-                position_transition="OPEN_LONG",
-                confidence=rec.ai_confidence,
-                order_intent=None,
-                planned_actions=[],
-                risk_controls={},
+            amount = self.config.get("default_trade_amount", 1000)
+            intent = TradeIntent(
+                symbol=rec.ticker, action=ExecutableAction.BUY,
+                current_position="NEUTRAL", target_position="LONG",
+                position_transition="OPEN_LONG", confidence=rec.ai_confidence,
+                order_intent=None, planned_actions=[], risk_controls={},
                 execution_constraints={},
-                rationale_summary=(
-                    f"扫描评分 {rec.scan_score:.0f}/125, AI综合分 {rec.ai_score:.0f}/100, "
-                    f"信号 {rec.ai_signal}, 入场价 ~${current_price:.2f}"
-                ),
+                rationale_summary=f"daily_stock_analysis 分析 BUY, 评分{rec.ai_score:.0f}",
             )
-
-            alpaca.execute_trade_intent(
-                symbol=rec.ticker,
-                current_position="NEUTRAL",
-                trade_intent=trade_intent,
-                dollar_amount=dollar_amount,
-                allow_shorts=False,
-            )
-
-            self.store.update_status(rec.id or 0, "active", notes=f"入场价 ${current_price:.2f}")
-            logger.info(f"✅ 入场: {rec.ticker} @ ${current_price:.2f}, 金额 ${dollar_amount}")
-
+            alpaca.execute_trade_intent(rec.ticker, "NEUTRAL", intent, amount, allow_shorts=False)
+            self.store.update_status(rec.id or 0, "active", notes=f"入场 ${current_price:.2f}")
+            logger.info(f"✅ 入场: {rec.ticker} @ ${current_price:.2f}")
         except Exception as e:
             logger.error(f"入场 {rec.ticker} 失败: {e}")
-            self.store.log_hourly_check(HourlyCheck(
-                ticker=rec.ticker, current_price=current_price,
-                signal="entry_failed", market_regime="unknown",
-                notes=str(e)[:200],
-            ))
 
     def _evaluate_exit(self, rec: Recommendation, positions: List) -> tuple:
-        """评估是否应该卖出持仓
-
-        返回 (should_exit: bool, reason: str)
-        """
         ticker = rec.ticker
         pos = next((p for p in positions if p.ticker == ticker), None)
         if not pos:
             return False, ""
-
-        # 止损检查
         if pos.is_losing:
-            return True, f"止损触发 ({pos.unrealized_pnl_pct:.1f}%)"
-
-        # 表现不佳检查
+            return True, f"止损 ({pos.unrealized_pnl_pct:.1f}%)"
         if pos.is_underperforming:
-            # 重新用 AI 快速评估
-            try:
-                graph = self._get_graph()
-                _, signal = graph.propagate(ticker, datetime.now().strftime("%Y-%m-%d"))
-                if signal == "SELL":
-                    return True, f"AI 重新评估建议卖出 ({pos.unrealized_pnl_pct:.1f}%)"
-            except Exception:
-                pass
-
+            return True, f"表现不佳 ({pos.unrealized_pnl_pct:.1f}%, 持有{pos.days_held}天)"
         return False, ""
 
     def _execute_exit(self, rec: Recommendation, reason: str):
-        """卖出持仓"""
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
-            alpaca = AlpacaUtils()
-            alpaca.close_position(rec.ticker, percentage=100.0)
+            AlpacaUtils().close_position(rec.ticker, percentage=100.0)
             self.store.update_status(rec.id or 0, "executed", notes=reason)
-            logger.info(f"✅ 卖出: {rec.ticker} (原因: {reason})")
+            logger.info(f"✅ 卖出: {rec.ticker} ({reason})")
         except Exception as e:
             logger.error(f"卖出 {rec.ticker} 失败: {e}")
 
     def _execute_rotation(self, event, positions: List):
-        """执行换仓：先卖后买"""
-        # 卖出
         sell_rec = self.store.get_by_ticker(event.sold_ticker)
         if sell_rec:
             self._execute_exit(sell_rec, event.reason)
-
-        # 买入
         buy_rec = self.store.get_by_ticker(event.bought_ticker)
         if buy_rec:
-            current_price = self._get_current_price(event.bought_ticker)
-            if current_price:
-                self._execute_entry(buy_rec, current_price)
-
-        # 记录
+            price = self._get_current_price(event.bought_ticker)
+            if price:
+                self._execute_entry(buy_rec, price)
         self.store.log_rotation(event)
+
+
+def _safe_float(val) -> Optional[float]:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None

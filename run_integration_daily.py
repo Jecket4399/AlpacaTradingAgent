@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""每日批量分析入口
+"""每日同步：从 daily_stock_analysis 结果中提取 BUY 推荐 → 放入监控列表
 
 用法:
-    python run_integration_daily.py                    # 使用默认配置
-    python run_integration_daily.py --top 20           # 只分析 Top 20
-    python run_integration_daily.py --scan-url <URL>   # 指定扫描文件地址
+    python run_integration_daily.py                        # 从 daily_stock_analysis 拉取
+    python run_integration_daily.py --dry-run              # 仅查看，不写入
 """
 
 import argparse
@@ -15,51 +14,49 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from integration.pipeline import IntegrationPipeline
-from integration.config import TOP_N_CANDIDATES, SCAN_OUTPUT_URL
-
-
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(Path.home() / ".tradingagents" / "daily_pipeline.log"),
-        ],
-    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="每日全市场筛选 + AI 分析")
-    parser.add_argument("--top", type=int, default=TOP_N_CANDIDATES, help="分析 Top N 只")
-    parser.add_argument("--scan-url", type=str, default=SCAN_OUTPUT_URL,
-                        help="stock-screener 扫描结果 URL")
-    parser.add_argument("--llm", type=str, default="deepseek", help="LLM 提供商")
-    parser.add_argument("--dry-run", action="store_true", help="仅打印会分析的股票，不真正执行")
+    parser = argparse.ArgumentParser(
+        description="从 daily_stock_analysis 分析结果同步 BUY 推荐"
+    )
+    parser.add_argument("--source-url", type=str,
+                        help="daily_stock_analysis 报告 URL 或本地文件路径")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="仅查看会添加哪些推荐，不实际写入")
     args = parser.parse_args()
 
-    setup_logging()
-    logger = logging.getLogger("daily_pipeline")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    pipeline = IntegrationPipeline()
 
     if args.dry_run:
-        from integration.scan_parser import fetch_and_parse
-        results = fetch_and_parse(args.scan_url, args.top)
-        print(f"\n会分析以下 {len(results)} 只股票:\n")
-        for sr in results:
-            print(f"  #{sr.rank:2d}  {sr.ticker:6s}  Score={sr.score:.0f}/125  "
-                  f"RR={sr.rr_ratio or '?'}:1  RS={sr.rs_slope or '?'}")
+        from integration.pipeline import DSA_ARTIFACT_URL
+        url = args.source_url or DSA_ARTIFACT_URL
+        signals = pipeline._fetch_dsa_results(url)
+        if not signals:
+            print("⚠️  未获取到 daily_stock_analysis 分析结果")
+            print("   提示：确保 daily_stock_analysis 最近一次运行已完成")
+            return
+
+        buy_signals = [s for s in signals if s.get("action") == "BUY"]
+        print(f"\n从 {len(signals)} 只股票中筛选出 {len(buy_signals)} 只 BUY:\n")
+        for s in buy_signals:
+            print(f"  {s['ticker']:6s}  评分={s['score']:3d}  置信度={s['confidence']}")
+        if not buy_signals:
+            print("  (无 BUY 推荐)")
         return
 
-    logger.info("开始每日批量分析...")
-    pipeline = IntegrationPipeline(config={"llm_provider": args.llm})
-    stats = pipeline.daily_batch(scan_url=args.scan_url, top_n=args.top)
-
-    logger.info(f"完成: 分析={stats['analyzed']}, 新增={stats['added']}, "
-                f"跳过={stats['skipped']}, 错误={stats['errors']}")
+    stats = pipeline.daily_sync(source_url=args.source_url)
+    print(f"\n同步完成: 发现 {stats['found']} 只, BUY {stats['buy']} 只, "
+          f"新增推荐 {stats['added']} 只")
 
     summary = pipeline.store.get_summary()
-    logger.info(f"当前推荐列表: pending={summary['pending']}, active={summary['active']}")
+    print(f"推荐列表: {summary['pending']} 只待入场, {summary['active']} 只持仓中")
 
 
 if __name__ == "__main__":
