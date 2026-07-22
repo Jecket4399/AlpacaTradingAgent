@@ -1,0 +1,63 @@
+name: 每日同步 BUY 推荐
+
+on:
+  schedule:
+    # UTC 12:00 = CST 20:00（daily_stock_analysis 于 UTC 11:30 完成）
+    - cron: '0 12 * * 1-5'
+
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 恢复数据库
+        run: |
+          if [ -f "data/recommendations.db" ]; then
+            mkdir -p ~/.tradingagents
+            cp data/recommendations.db ~/.tradingagents/recommendations.db
+            echo "✅ 恢复数据库"
+          fi
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 从 daily_stock_analysis 同步 BUY 推荐
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "📥 从 daily_stock_analysis 拉取最新分析..."
+          python run_integration_daily.py
+
+      - name: 保存数据库
+        if: always()
+        run: |
+          mkdir -p data
+          if [ -f ~/.tradingagents/recommendations.db ]; then
+            cp ~/.tradingagents/recommendations.db data/recommendations.db
+            echo "✅ 数据库已保存"
+          fi
+          git config user.email "actions@github.com"
+          git config user.name "github-actions"
+          git add data/recommendations.db 2>/dev/null || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: 每日同步 BUY 推荐 [skip ci]"
+            git push origin main
+            echo "✅ 已提交"
+          fi

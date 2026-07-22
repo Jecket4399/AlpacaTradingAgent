@@ -1,0 +1,119 @@
+name: 每小时仓位监控
+
+on:
+  schedule:
+    # 美股交易时段 (EDT 9:30-16:00 = UTC 13:30-20:00)
+    # 每小时运行一次，周一到周五
+    - cron: '30 13 * * 1-5'   # 09:30 EDT 开盘检查
+    - cron: '0 14 * * 1-5'    # 10:00 EDT
+    - cron: '0 15 * * 1-5'    # 11:00 EDT
+    - cron: '0 16 * * 1-5'    # 12:00 EDT
+    - cron: '0 17 * * 1-5'    # 13:00 EDT
+    - cron: '0 18 * * 1-5'    # 14:00 EDT
+    - cron: '0 19 * * 1-5'    # 15:00 EDT
+    - cron: '0 20 * * 1-5'    # 16:00 EDT 收盘前最后检查
+
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # 需要提交数据库状态
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 恢复数据库状态（从上次运行）
+        run: |
+          # 数据库文件存在仓库的 data/ 目录中，自动随 checkout 恢复
+          if [ -f "data/recommendations.db" ]; then
+            mkdir -p ~/.tradingagents
+            cp data/recommendations.db ~/.tradingagents/recommendations.db
+            echo "✅ 恢复推荐数据库 (上次运行状态)"
+          else
+            echo "📝 首次运行，创建新数据库"
+          fi
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install yfinance  # 兜底价格数据
+
+      - name: 执行每小时监控
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_USE_PAPER: 'True'
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'deepseek' }}
+        run: |
+          echo "🔍 每小时仓位监控 ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+          echo ""
+
+          # 只在交易时段运行（双重保险，cron 已经限制）
+          HOUR_UTC=$(date -u +%H)
+          DAY_OF_WEEK=$(date -u +%u)
+
+          if [ $DAY_OF_WEEK -ge 6 ]; then
+            echo "⏭️  周末，跳过"
+            exit 0
+          fi
+
+          if [ $HOUR_UTC -lt 13 ] || [ $HOUR_UTC -gt 20 ]; then
+            echo "⏭️  非交易时段 (UTC $HOUR_UTC:00)，跳过"
+            exit 0
+          fi
+
+          python run_integration_monitor.py --once
+
+      - name: 保存数据库状态（提交到仓库）
+        if: always()
+        run: |
+          mkdir -p data
+          if [ -f ~/.tradingagents/recommendations.db ]; then
+            cp ~/.tradingagents/recommendations.db data/recommendations.db
+            echo "✅ 数据库快照已保存"
+          fi
+
+          # 提交变更（如果有）
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add data/recommendations.db 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "无数据库变更"
+          else
+            git commit -m "chore: 更新推荐列表状态 [skip ci]"
+            git push origin main
+            echo "✅ 数据库已同步到仓库"
+          fi
+
+      - name: 查看推荐列表
+        if: always()
+        run: |
+          python -c "
+          import sys; sys.path.insert(0, '.')
+          from integration.recommendation_store import RecommendationStore
+          store = RecommendationStore()
+          summary = store.get_summary()
+          print(f'推荐列表: {summary[\"pending\"]} 只待入场, {summary[\"active\"]} 只持仓中')
+          if summary['active']:
+              for r in store.get_active():
+                  print(f'  持仓: {r.ticker} 评分={r.ai_score:.0f} 入场={r.activated_at}')
+          if summary['pending']:
+              print('待入场 Top 5:')
+              for r in store.get_pending(5):
+                  print(f'  {r.ticker:6s} 评分={r.ai_score:.0f}')
+          "
