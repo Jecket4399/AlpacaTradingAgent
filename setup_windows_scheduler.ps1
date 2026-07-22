@@ -27,9 +27,9 @@ Write-Host "Python: $python"
 Write-Host "项目:   $ProjectDir"
 Write-Host ""
 Write-Host "美股时间线（北京时间 CST）："
-Write-Host "  20:00  stock-screener 全市场扫描 (GitHub Actions)"
-Write-Host "  21:00  daily_stock_analysis AI分析 (GitHub Actions)"
-Write-Host "  21:15  每日同步：提取 BUY 推荐 (本机)"
+Write-Host "  18:00  stock-screener 全市场扫描 (GitHub Actions)"
+Write-Host "  19:30  daily_stock_analysis AI分析25只 (GitHub Actions, ~22min)"
+Write-Host "  20:00  每日同步：提取 BUY 推荐 (本机)"
 Write-Host "  21:30  美股开盘 → 每小时监控启动"
 Write-Host "  04:00  美股收盘 → 监控停止"
 Write-Host ""
@@ -42,12 +42,12 @@ foreach ($name in @("\AI量化-每日同步", "\AI量化-每小时监控")) {
     } catch {}
 }
 
-# ---- 每日同步：21:15 ----
+# ---- 每日同步：20:00 ----
 $dailyAction = New-ScheduledTaskAction -Execute $python `
     -Argument "`"$dailyScript`"" `
     -WorkingDirectory $ProjectDir
 
-$dailyTrigger = New-ScheduledTaskTrigger -Daily -At "21:15"
+$dailyTrigger = New-ScheduledTaskTrigger -Daily -At "20:00"
 
 Register-ScheduledTask -TaskName "\AI量化-每日同步" `
     -Action $dailyAction `
@@ -56,7 +56,7 @@ Register-ScheduledTask -TaskName "\AI量化-每日同步" `
     -Description "从 daily_stock_analysis 最新分析中提取 BUY 推荐，放入监控列表" `
     -RunLevel Limited
 
-Write-Host "[ok] 每日同步: 每天 21:15" -ForegroundColor Cyan
+Write-Host "[ok] 每日同步: 每天 20:00" -ForegroundColor Cyan
 
 # ---- 每小时监控：21:30 起每小时，持续到次日 04:30 ----
 $monitorAction = New-ScheduledTaskAction -Execute $python `
