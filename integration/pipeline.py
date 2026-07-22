@@ -343,8 +343,11 @@ class IntegrationPipeline:
 
             cfg = DEFAULT_CONFIG.copy()
             cfg["llm_provider"] = self.config.get("llm_provider", "deepseek")
-            cfg["deep_think_llm"] = self.config.get("deep_llm", "deepseek-chat")
-            cfg["quick_think_llm"] = self.config.get("quick_llm", "deepseek-chat")
+            # DeepSeek 支持的模型名
+            cfg["deep_think_llm"] = self.config.get("deep_llm", "deepseek-v4-pro")
+            cfg["quick_think_llm"] = self.config.get("quick_llm", "deepseek-v4-flash")
+            cfg["deep_llm_params"] = {"temperature": 0.3, "max_tokens": 8192}
+            cfg["quick_llm_params"] = {"temperature": 0.5, "max_tokens": 4096}
             cfg["max_debate_rounds"] = self.config.get("debate_rounds", 3)
             cfg["max_risk_discuss_rounds"] = self.config.get("risk_rounds", 2)
             cfg["allow_shorts"] = False  # 投资模式: BUY/HOLD/SELL
