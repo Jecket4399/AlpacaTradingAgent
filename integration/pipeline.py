@@ -10,7 +10,6 @@ hourly_monitor: 每小时对每只待决策股票跑轻量 AI 分析 → BUY/SEL
 
 import json
 import logging
-import re
 import time
 import urllib.request
 from datetime import datetime
@@ -28,10 +27,10 @@ from .portfolio_overseer import PortfolioOverseer
 
 logger = logging.getLogger(__name__)
 
-# daily_stock_analysis 的 GitHub Actions artifact 或报告 URL
-DSA_ARTIFACT_URL = (
+# daily_stock_analysis 已提交到仓库的 JSON 决策摘要
+DSA_JSON_URL = (
     "https://raw.githubusercontent.com/Jecket4399/daily-stock-analysis/"
-    "main/reports/report_latest.md"
+    "main/reports/json/decision_signals.json"
 )
 
 
@@ -114,35 +113,27 @@ class IntegrationPipeline:
         return {"found": len(signals), "buy": buy_count, "added": added}
 
     def _fetch_dsa_results(self, url: Optional[str] = None) -> List[dict]:
-        """从 daily_stock_analysis 获取最新分析结果
+        """从 daily_stock_analysis 仓库获取 JSON 决策摘要
 
-        尝试顺序：
-        1. GitHub Actions 最近一次运行的 artifact（通过 gh CLI）
-        2. 仓库中的公开报告文件
-        3. 兜底：返回空
+        daily_stock_analysis 在每次分析完成后将 decision_signals.json
+        提交到 reports/json/ 目录，直接从 raw.githubusercontent.com 读取。
         """
-        results = []
-
-        # 方式1：通过 gh CLI 下载最近一次运行的分析报告
+        target = url or DSA_JSON_URL
         try:
-            results = self._fetch_via_gh_cli()
-            if results:
-                return results
-        except Exception as e:
-            logger.debug(f"gh CLI 方式失败: {e}")
-
-        # 方式2：从仓库公开 URL 读取
-        target_url = url or DSA_ARTIFACT_URL
-        try:
-            req = urllib.request.Request(target_url)
+            req = urllib.request.Request(target)
             req.add_header("User-Agent", "integration-pipeline/1.0")
             with urllib.request.urlopen(req, timeout=30) as resp:
                 content = resp.read().decode("utf-8")
-            results = self._parse_dsa_report(content)
+            data = json.loads(content)
+            if isinstance(data, list) and len(data) > 0 and "ticker" in data[0]:
+                logger.info(f"从 JSON 获取到 {len(data)} 条决策信号")
+                return data
+            else:
+                logger.warning(f"JSON 格式异常: {type(data)}")
+                return []
         except Exception as e:
-            logger.warning(f"从 URL 获取分析结果失败: {e}")
-
-        return results
+            logger.warning(f"从 URL 获取 JSON 失败: {e}")
+            return []
 
     def _fetch_via_gh_cli(self) -> List[dict]:
         """通过 gh CLI 下载 daily_stock_analysis 最近一次 artifact"""

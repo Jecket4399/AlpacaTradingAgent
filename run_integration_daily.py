@@ -40,8 +40,8 @@ def main():
     pipeline = IntegrationPipeline()
 
     if args.dry_run:
-        from integration.pipeline import DSA_ARTIFACT_URL
-        url = args.source_url or DSA_ARTIFACT_URL
+        from integration.pipeline import DSA_JSON_URL
+        url = args.source_url or DSA_JSON_URL
         signals = pipeline._fetch_dsa_results(url)
         if not signals:
             print("⚠️  未获取到 daily_stock_analysis 分析结果")
