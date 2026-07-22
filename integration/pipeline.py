@@ -1,18 +1,20 @@
 """三引擎集成主流水线
 
 架构：
-  stock-screener → daily_stock_analysis (AI分析) → 本模块 (提取BUY) → Alpaca (监控执行)
+  stock-screener → daily_stock_analysis (初次筛选) → 本模块 (提取BUY)
+  → TradingAgentsGraph (每小时AI决策) → Alpaca (执行)
 
-daily_batch: 从 daily_stock_analysis 结果中提取 BUY 推荐 → 填充推荐列表
-hourly_monitor: 每小时检查推荐列表 → 择机入场 → 换仓（仅模拟盘）
+daily_batch: 从 daily_stock_analysis 结果中提取 BUY → 推荐列表
+hourly_monitor: 每小时对每只待决策股票跑轻量 AI 分析 → BUY/SELL → 执行
 """
 
 import json
 import logging
 import re
+import time
 import urllib.request
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .config import (
     MAX_RECOMMENDATIONS, ENTRY_PRICE_TOLERANCE_PCT, MAX_DAILY_TRADES,
@@ -230,52 +232,177 @@ class IntegrationPipeline:
         logger.info(f"从报告解析到 {len(results)} 条信号")
         return results
 
-    # ==================== 每小时监控（保持不变）====================
+    # ==================== 每小时监控（完整 AI 决策链）====================
 
     def hourly_monitor(self) -> dict:
-        """每小时监控推荐列表，择机入场 + 换仓"""
+        """每小时监控：对推荐列表中的每只股票，跑完整 TradingAgentsGraph 分析链来决定买卖。
+
+        完整决策链：
+          5 分析师(并行) → 证据计分板 → 牛熊辩论 → Research Manager
+          → Trader → 风险三人辩论 → Risk Judge → TradeIntent → 下单
+        """
         self._init_overseer()
-        stats = {"orders_placed": 0, "rotations": 0, "checks_performed": 0}
+        stats = {"analyzed": 0, "buy_signals": 0, "sell_signals": 0,
+                 "entries": 0, "exits": 0, "rotations": 0}
 
         if not self._is_market_hours():
-            logger.info("非交易时段")
+            logger.info("非交易时段，跳过")
             return stats
 
+        # 第1步：获取当前持仓
         positions = self.overseer.get_current_positions() if self.overseer else []
         logger.info(f"当前持仓: {len(positions)} 只")
 
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 第2步：对每只 pending BUY 推荐，跑完整分析链决定是否买入
         pending = self.store.get_pending(MAX_RECOMMENDATIONS)
+        logger.info(f"待决策股票: {len(pending)} 只 pending + {self.store.get_count_by_status('active')} 只持仓")
 
-        # 检查入场时机
         for rec in pending:
-            stats["checks_performed"] += 1
-            try:
-                self._check_entry_timing(rec, positions)
-            except Exception as e:
-                logger.error(f"检查入场 {rec.ticker}: {e}")
+            # 跳过已在持仓中的
+            if any(p.ticker == rec.ticker for p in positions):
+                continue
+            # 仓位满了就停
+            if self.overseer and not self.overseer.can_open_new_position(positions):
+                logger.info(f"仓位已满，停止分析")
+                break
 
-        # 评估出场
+            stats["analyzed"] += 1
+            signal, trade_intent = self._run_full_analysis(rec.ticker, today)
+
+            if signal == "BUY":
+                stats["buy_signals"] += 1
+                executed = self._execute_full_intent(rec, trade_intent)
+                if executed:
+                    stats["entries"] += 1
+                    # 更新持仓列表
+                    positions = self.overseer.get_current_positions() if self.overseer else []
+            elif signal == "SELL":
+                stats["sell_signals"] += 1
+
+            # 记录检查
+            self.store.log_hourly_check(HourlyCheck(
+                ticker=rec.ticker, current_price=0,
+                signal=signal, market_regime="unknown",
+                notes=f"AI完整分析: {signal}",
+            ))
+
+            # API 限速保护
+            time.sleep(3)
+
+        # 第3步：对现有持仓，跑完整分析链决定是否卖出
         active = self.store.get_active()
         for rec in active:
-            stats["checks_performed"] += 1
-            try:
-                should_exit, reason = self._evaluate_exit(rec, positions)
-                if should_exit:
-                    self._execute_exit(rec, reason)
-                    stats["orders_placed"] += 1
-            except Exception as e:
-                logger.error(f"评估出场 {rec.ticker}: {e}")
+            pos = next((p for p in positions if p.ticker == rec.ticker), None)
+            if not pos:
+                continue
+            if pos.days_held < self.config.get("min_holding_days", 1):
+                continue
 
-        # 换仓检测
-        if self.overseer:
+            stats["analyzed"] += 1
+            signal, trade_intent = self._run_full_analysis(rec.ticker, today)
+
+            if signal == "SELL":
+                stats["sell_signals"] += 1
+                self._execute_exit(rec, f"AI分析建议卖出")
+                stats["exits"] += 1
+            elif pos.is_losing:
+                # 止损兜底：浮亏超5%强制卖出，不等AI
+                self._execute_exit(rec, f"止损兜底 ({pos.unrealized_pnl_pct:.1f}%)")
+                stats["exits"] += 1
+
+            self.store.log_hourly_check(HourlyCheck(
+                ticker=rec.ticker, current_price=pos.current_price,
+                signal=signal, market_regime="unknown",
+                notes=f"持仓评估: {signal}",
+            ))
+            time.sleep(3)
+
+        # 第4步：换仓检测
+        if self.overseer and stats["entries"] == 0:
             candidates = [r for r in pending if r.is_buy_signal]
             rotation = self.overseer.find_best_rotation(positions, candidates)
             if rotation:
                 self._execute_rotation(rotation, positions)
                 stats["rotations"] += 1
-                stats["orders_placed"] += 2
 
+        logger.info(f"监控完成: 分析={stats['analyzed']}, "
+                     f"BUY={stats['buy_signals']}, SELL={stats['sell_signals']}, "
+                     f"入场={stats['entries']}, 出场={stats['exits']}, 换仓={stats['rotations']}")
         return stats
+
+    def _run_full_analysis(self, ticker: str, date_str: str) -> Tuple[str, Optional[dict]]:
+        """跑完整的 TradingAgentsGraph 分析链：5分析师 → 辩论 → 裁决
+
+        返回: (signal: BUY/HOLD/SELL, trade_intent: dict or None)
+        """
+        try:
+            from tradingagents.graph.trading_graph import TradingAgentsGraph
+            from tradingagents.default_config import DEFAULT_CONFIG
+
+            cfg = DEFAULT_CONFIG.copy()
+            cfg["llm_provider"] = self.config.get("llm_provider", "deepseek")
+            cfg["deep_think_llm"] = self.config.get("deep_llm", "deepseek-chat")
+            cfg["quick_think_llm"] = self.config.get("quick_llm", "deepseek-chat")
+            cfg["max_debate_rounds"] = self.config.get("debate_rounds", 3)
+            cfg["max_risk_discuss_rounds"] = self.config.get("risk_rounds", 2)
+            cfg["allow_shorts"] = False  # 投资模式: BUY/HOLD/SELL
+            cfg.update(self.config.get("extra_config", {}))
+
+            graph = TradingAgentsGraph(
+                selected_analysts=["market", "social", "news", "fundamentals", "macro"],
+                config=cfg,
+            )
+
+            logger.info(f"  完整分析 {ticker} (5分析师→辩论→裁决)...")
+            start = time.time()
+            final_state, signal = graph.propagate(ticker, date_str)
+            elapsed = time.time() - start
+
+            trade_intent = final_state.get("final_trade_intent") if final_state else None
+            logger.info(f"  结果: {signal} (耗时 {elapsed:.0f}s)")
+
+            return signal, trade_intent
+
+        except Exception as e:
+            logger.error(f"  分析 {ticker} 失败: {e}", exc_info=True)
+            return "HOLD", None
+
+    def _execute_full_intent(self, rec: Recommendation, trade_intent) -> bool:
+        """执行完整的 TradeIntent（由 Risk Judge 产出的下单指令）"""
+        if not trade_intent:
+            logger.info(f"  {rec.ticker}: 无 TradeIntent，跳过执行")
+            return False
+
+        try:
+            from tradingagents.dataflows.alpaca_utils import AlpacaUtils
+
+            alpaca = AlpacaUtils()
+            amount = self.config.get("default_trade_amount", 1000)
+
+            result = alpaca.execute_trade_intent(
+                symbol=rec.ticker,
+                current_position="NEUTRAL",
+                trade_intent=trade_intent,
+                dollar_amount=amount,
+                allow_shorts=False,
+            )
+
+            if result and not result.get("safety_blocked") and not result.get("error"):
+                self.store.update_status(rec.id or 0, "active",
+                    notes=f"AI决策入场, signal={getattr(trade_intent, 'action', '?')}")
+                logger.info(f"  ✅ {rec.ticker}: AI决策入场成功")
+                return True
+            elif result and result.get("safety_blocked"):
+                logger.info(f"  ⚠️ {rec.ticker}: 安全层拦截")
+            else:
+                logger.info(f"  ⚠️ {rec.ticker}: {result.get('error', '未知错误') if result else '无结果'}")
+            return False
+
+        except Exception as e:
+            logger.error(f"  ❌ {rec.ticker}: 执行失败 - {e}")
+            return False
 
     def _is_market_hours(self) -> bool:
         now = datetime.utcnow()
