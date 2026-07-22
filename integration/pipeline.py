@@ -329,17 +329,41 @@ class IntegrationPipeline:
     def _execute_entry(self, rec: Recommendation, current_price: float):
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
-            from tradingagents.agents.schemas import TradeIntent, ExecutableAction
+            from tradingagents.agents.schemas import (
+                TradeIntent, ExecutableAction, OrderIntent,
+                RiskControls, ExecutionConstraints,
+            )
 
             alpaca = AlpacaUtils()
             amount = self.config.get("default_trade_amount", 1000)
+            conf = rec.ai_confidence or "medium"
+
             intent = TradeIntent(
-                symbol=rec.ticker, action=ExecutableAction.BUY,
-                current_position="NEUTRAL", target_position="LONG",
-                position_transition="OPEN_LONG", confidence=rec.ai_confidence,
-                order_intent=None, planned_actions=[], risk_controls={},
-                execution_constraints={},
-                rationale_summary=f"daily_stock_analysis 分析 BUY, 评分{rec.ai_score:.0f}",
+                symbol=rec.ticker,
+                trading_mode="investment",
+                action=ExecutableAction.BUY,
+                current_position="NEUTRAL",
+                target_position="LONG",
+                position_transition="OPEN_LONG",
+                confidence=conf,
+                order_intent=OrderIntent(
+                    order_type="market",
+                    order_class="simple",
+                    side="buy",
+                    sizing_basis="configured_notional",
+                    notional_usd=float(amount),
+                ),
+                risk_controls=RiskControls(
+                    mode="execution_allowed",
+                    stop_loss_price=rec.ai_stop_loss,
+                    take_profit_price=rec.ai_take_profit,
+                ),
+                execution_constraints=ExecutionConstraints(
+                    allow_shorts=False,
+                    asset_class="equity",
+                    requires_open_market=True,
+                ),
+                rationale_summary=f"daily_stock_analysis BUY, score={rec.ai_score:.0f}",
             )
             alpaca.execute_trade_intent(rec.ticker, "NEUTRAL", intent, amount, allow_shorts=False)
             self.store.update_status(rec.id or 0, "active", notes=f"入场 ${current_price:.2f}")
