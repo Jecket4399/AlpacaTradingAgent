@@ -2,8 +2,8 @@ name: 每日同步 BUY 推荐
 
 on:
   schedule:
-    # UTC 12:00 = CST 20:00（daily_stock_analysis 于 UTC 11:30 完成）
-    - cron: '0 12 * * 1-5'
+    # UTC 12:30 = CST 20:30（daily_stock_analysis 于 UTC ~12:14 完成）
+    - cron: '30 12 * * 1-5'
 
   workflow_dispatch:
 
