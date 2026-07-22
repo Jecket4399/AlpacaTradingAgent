@@ -17,6 +17,11 @@ from integration.pipeline import IntegrationPipeline
 
 
 def main():
+    import io, sys
+    # 修复 Windows GBK 编码问题
+    if sys.platform == 'win32':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(
         description="从 daily_stock_analysis 分析结果同步 BUY 推荐"
     )

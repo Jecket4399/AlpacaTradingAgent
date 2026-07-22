@@ -194,10 +194,12 @@ class IntegrationPipeline:
         results = []
 
         for line in content.split("\n"):
-            # 匹配摘要行: "🟢 Apple Inc.(AAPL): 买入 | 评分 75 | 强烈看多"
-            # 或: "⚪ Apple Inc.(AAPL): 持有观察 | 评分 59 | 看多"
+            # 匹配摘要行格式:
+            #   🟡 **Apple Inc.(AAPL)**: 持有 | 评分 59 | 强烈看多
+            #   🟠 **Tesla, Inc.(TSLA)**: 减仓 | 评分 35 | 看空
+            #   🟢 **XXX(CODE)**: 买入 | 评分 75 | ...
             m = re.match(
-                r".*\((\w+)\)[：:]\s*(买入|持有|卖出|减仓|观望|持有观察)\s*\|\s*评分\s*(\d+)",
+                r".*\((\w+)\)[*\s]*[：:]\s*(买入|持有|持有观察|卖出|减仓|观望)\s*\|\s*评分\s*(\d+)",
                 line
             )
             if not m:
