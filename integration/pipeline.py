@@ -381,6 +381,7 @@ class IntegrationPipeline:
                 trade_intent=trade_intent,
                 dollar_amount=amount,
                 allow_shorts=False,
+                risk_params={"atr_stop_multiplier": 2.0, "max_position_pct": 15.0},
             )
 
             if result and not result.get("safety_blocked") and not result.get("error"):
