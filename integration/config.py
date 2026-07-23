@@ -36,6 +36,8 @@ UNDERPERFORM_THRESHOLD_PCT = float(os.getenv("INTEGRATION_UNDERPERFORM_PCT", "2.
 UNDERPERFORM_DAYS = int(os.getenv("INTEGRATION_UNDERPERFORM_DAYS", "5"))
 # 安全网止损：仅在括号订单失效/跳空穿破时兜底，不干扰正常 ATR 止损
 SAFETY_NET_STOP_PCT = float(os.getenv("INTEGRATION_SAFETY_NET_STOP_PCT", "10.0"))
+# 安全网止盈：非AI的, 只在极端暴涨时锁定利润(定时检查之间的保护)
+SAFETY_NET_PROFIT_PCT = float(os.getenv("INTEGRATION_SAFETY_NET_PROFIT_PCT", "25.0"))
 
 # ---- 换仓 ----
 ROTATION_HYSTERESIS = float(os.getenv("INTEGRATION_ROTATION_HYSTERESIS", "1.2"))  # 候选分 > 持仓分 × 1.2 才换

@@ -364,16 +364,30 @@ class IntegrationPipeline:
             return "HOLD", None
 
     def _execute_full_intent(self, rec: Recommendation, trade_intent) -> bool:
-        """执行完整的 TradeIntent（由 Risk Judge 产出的下单指令）"""
+        """执行完整的 TradeIntent（由 Risk Judge 产出的下单指令）
+
+        AI 决定止盈价，若无数值则用安全网止盈（+25%）防止极端暴涨错过窗口。
+        """
         if not trade_intent:
             logger.info(f"  {rec.ticker}: 无 TradeIntent，跳过执行")
             return False
 
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
+            from .config import SAFETY_NET_PROFIT_PCT
 
             alpaca = AlpacaUtils()
             amount = self.config.get("default_trade_amount", 1000)
+
+            # 如果 AI 没给止盈价，加安全网止盈（只在极端暴涨时触发）
+            rc = trade_intent.risk_controls
+            if not rc.take_profit_price:
+                current_price = self._get_current_price(rec.ticker)
+                if current_price and current_price > 0:
+                    rc.take_profit_price = round(
+                        current_price * (1 + SAFETY_NET_PROFIT_PCT / 100), 2
+                    )
+                    logger.info(f"  {rec.ticker}: AI未设止盈, 安全网止盈 @ ${rc.take_profit_price} (+{SAFETY_NET_PROFIT_PCT}%)")
 
             result = alpaca.execute_trade_intent(
                 symbol=rec.ticker,
