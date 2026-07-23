@@ -15,6 +15,8 @@ import urllib.request
 from datetime import datetime
 from typing import List, Optional, Tuple
 
+import pandas as pd
+
 from .config import (
     MAX_RECOMMENDATIONS, ENTRY_PRICE_TOLERANCE_PCT, MAX_DAILY_TRADES,
     RECOMMENDATION_TTL_DAYS, MONITOR_INTERVAL_MINUTES,
@@ -374,20 +376,21 @@ class IntegrationPipeline:
 
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
-            from .config import SAFETY_NET_PROFIT_PCT
+            from .config import ATR_TAKE_PROFIT_MULTIPLIER
 
             alpaca = AlpacaUtils()
             amount = self.config.get("default_trade_amount", 1000)
 
-            # 如果 AI 没给止盈价，加安全网止盈（只在极端暴涨时触发）
+            # 如果 AI 没给止盈价，用 ATR×2.0 计算（行业标准）
             rc = trade_intent.risk_controls
             if not rc.take_profit_price:
                 current_price = self._get_current_price(rec.ticker)
                 if current_price and current_price > 0:
-                    rc.take_profit_price = round(
-                        current_price * (1 + SAFETY_NET_PROFIT_PCT / 100), 2
-                    )
-                    logger.info(f"  {rec.ticker}: AI未设止盈, 安全网止盈 @ ${rc.take_profit_price} (+{SAFETY_NET_PROFIT_PCT}%)")
+                    atr = self._get_atr(rec.ticker)
+                    if atr and atr > 0:
+                        tp = round(current_price + atr * ATR_TAKE_PROFIT_MULTIPLIER, 2)
+                        rc.take_profit_price = tp
+                        logger.info(f"  {rec.ticker}: ATR止盈 @ ${tp} (ATR×{ATR_TAKE_PROFIT_MULTIPLIER})")
 
             result = alpaca.execute_trade_intent(
                 symbol=rec.ticker,
@@ -443,6 +446,27 @@ class IntegrationPipeline:
             return
 
         self._execute_entry(rec, current_price)
+
+    def _get_atr(self, ticker: str, period: int = 14) -> Optional[float]:
+        """获取 ATR(平均真实波幅) 用于计算动态止盈止损"""
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            hist = t.history(period=f"{period + 5}d")
+            if hist.empty or len(hist) < period:
+                return None
+            high = hist["High"]
+            low = hist["Low"]
+            close = hist["Close"].shift(1)
+            tr = pd.concat([
+                high - low,
+                (high - close).abs(),
+                (low - close).abs(),
+            ], axis=1).max(axis=1)
+            atr = tr.rolling(period).mean().iloc[-1]
+            return float(atr) if (atr and not pd.isna(atr)) else None
+        except Exception:
+            return None
 
     def _get_current_price(self, ticker: str) -> Optional[float]:
         try:
