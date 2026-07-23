@@ -19,7 +19,7 @@ ANALYSIS_BATCH_DELAY = float(os.getenv("INTEGRATION_BATCH_DELAY", "5.0"))  # 批
 
 # ---- 推荐列表 ----
 MAX_RECOMMENDATIONS = int(os.getenv("INTEGRATION_MAX_RECOMMENDATIONS", "25"))
-RECOMMENDATION_TTL_DAYS = int(os.getenv("INTEGRATION_RECOMMENDATION_TTL", "7"))  # 超过7天未入场则过期
+RECOMMENDATION_TTL_DAYS = int(os.getenv("INTEGRATION_RECOMMENDATION_TTL", "3"))  # 超过3天未入场则过期
 MIN_AI_CONFIDENCE = os.getenv("INTEGRATION_MIN_CONFIDENCE", "medium")  # 最低置信度要求
 
 # ---- 每小时监控 ----
