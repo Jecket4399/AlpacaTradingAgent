@@ -104,8 +104,9 @@ class PositionSnapshot:
 
     @property
     def is_losing(self) -> bool:
-        """浮亏超过5%，触发止损评估"""
-        return self.unrealized_pnl_pct < -5.0
+        """浮亏超过安全网阈值（默认10%），仅作为括号订单失效时的兜底"""
+        from .config import SAFETY_NET_STOP_PCT
+        return self.unrealized_pnl_pct < -SAFETY_NET_STOP_PCT
 
 
 @dataclass
