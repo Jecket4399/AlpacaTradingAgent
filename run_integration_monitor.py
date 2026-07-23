@@ -22,13 +22,15 @@ from integration.config import MONITOR_INTERVAL_MINUTES
 
 
 def setup_logging():
+    log_dir = Path.home() / ".tradingagents"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(Path.home() / ".tradingagents" / "monitor.log"),
+            logging.FileHandler(log_dir / "monitor.log"),
         ],
     )
 
