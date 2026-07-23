@@ -90,7 +90,7 @@ jobs:
           # 提交变更（如果有）
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add data/recommendations.db 2>/dev/null || true
+          git add -f data/recommendations.db
 
           if git diff --staged --quiet; then
             echo "无数据库变更"

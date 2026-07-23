@@ -55,7 +55,7 @@ jobs:
           fi
           git config user.email "actions@github.com"
           git config user.name "github-actions"
-          git add data/recommendations.db 2>/dev/null || true
+          git add -f data/recommendations.db
           if ! git diff --staged --quiet; then
             git commit -m "chore: 每日同步 BUY 推荐 [skip ci]"
             git push origin main
