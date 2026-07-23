@@ -2,16 +2,16 @@ name: 每小时仓位监控
 
 on:
   schedule:
-    # 美股交易时段 (EDT 9:30-16:00 = UTC 13:30-20:00)
-    # 每小时运行一次，周一到周五
-    - cron: '30 13 * * 1-5'   # 09:30 EDT 开盘检查
+    # 美股 EDT 9:30-16:00 = UTC 13:30-20:00
+    # 提前半小时开始, 提前半小时结束
+    - cron: '0 13 * * 1-5'    # UTC 13:00 = 09:00 EDT (开盘前30分钟)
     - cron: '0 14 * * 1-5'    # 10:00 EDT
     - cron: '0 15 * * 1-5'    # 11:00 EDT
     - cron: '0 16 * * 1-5'    # 12:00 EDT
     - cron: '0 17 * * 1-5'    # 13:00 EDT
     - cron: '0 18 * * 1-5'    # 14:00 EDT
     - cron: '0 19 * * 1-5'    # 15:00 EDT
-    - cron: '0 20 * * 1-5'    # 16:00 EDT 收盘前最后检查
+    - cron: '30 19 * * 1-5'   # UTC 19:30 = 15:30 EDT (收盘前30分钟)
 
   workflow_dispatch:
 
@@ -71,7 +71,7 @@ jobs:
             exit 0
           fi
 
-          if [ $HOUR_UTC -lt 13 ] || [ $HOUR_UTC -gt 20 ]; then
+          if [ $HOUR_UTC -lt 13 ] || [ $HOUR_UTC -gt 19 ]; then
             echo "⏭️  非交易时段 (UTC $HOUR_UTC:00)，跳过"
             exit 0
           fi
