@@ -58,6 +58,13 @@ jobs:
           git add -f data/recommendations.db
           if ! git diff --staged --quiet; then
             git commit -m "chore: 每日同步 BUY 推荐 [skip ci]"
-            git push origin main
-            echo "✅ 已提交"
+            # 处理并发推送：可能和 hourly_monitor 同时运行
+            for i in 1 2 3; do
+              if git pull --rebase origin main && git push origin main; then
+                echo "✅ 已提交"
+                break
+              fi
+              echo "⚠️ 推送冲突，重试 ($i/3)..."
+              sleep $((RANDOM % 10 + 5))
+            done
           fi

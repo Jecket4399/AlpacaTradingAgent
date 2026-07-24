@@ -96,8 +96,15 @@ jobs:
             echo "无数据库变更"
           else
             git commit -m "chore: 更新推荐列表状态 [skip ci]"
-            git push origin main
-            echo "✅ 数据库已同步到仓库"
+            # 处理并发推送：多个 hourly_monitor 可能同时运行，需 pull --rebase 后重试
+            for i in 1 2 3; do
+              if git pull --rebase origin main && git push origin main; then
+                echo "✅ 数据库已同步到仓库"
+                break
+              fi
+              echo "⚠️ 推送冲突，重试 ($i/3)..."
+              sleep $((RANDOM % 10 + 5))
+            done
           fi
 
       - name: 查看推荐列表
