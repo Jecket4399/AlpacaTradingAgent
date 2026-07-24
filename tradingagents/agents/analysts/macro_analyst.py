@@ -199,7 +199,11 @@ def create_macro_analyst(llm, toolkit):
                                 tool_failures.append(tool_name)
 
                     tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
-                    ai_tool_call_msg = AIMessage(content="", additional_kwargs={"tool_calls": [tool_call]})
+                    additional_kwargs = {"tool_calls": [tool_call]}
+                    reasoning = result.additional_kwargs.get("reasoning_content")
+                    if reasoning:
+                        additional_kwargs["reasoning_content"] = reasoning
+                    ai_tool_call_msg = AIMessage(content="", additional_kwargs=additional_kwargs)
                     tool_msg = ToolMessage(content=str(tool_result), tool_call_id=tool_call_id)
                     messages_history.extend([ai_tool_call_msg, tool_msg])
 

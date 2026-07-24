@@ -145,9 +145,13 @@ def create_social_media_analyst(llm, toolkit):
 
                 # Append the assistant tool call and tool result messages so the LLM can continue the conversation
                 tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
+                additional_kwargs = {"tool_calls": [tool_call]}
+                reasoning = result.additional_kwargs.get("reasoning_content")
+                if reasoning:
+                    additional_kwargs["reasoning_content"] = reasoning
                 ai_tool_call_msg = AIMessage(
                     content="",
-                    additional_kwargs={"tool_calls": [tool_call]},
+                    additional_kwargs=additional_kwargs,
                 )
                 tool_msg = ToolMessage(
                     content=str(tool_result),
