@@ -23,8 +23,6 @@ RECOMMENDATION_TTL_DAYS = int(os.getenv("INTEGRATION_RECOMMENDATION_TTL", "3")) 
 MIN_AI_CONFIDENCE = os.getenv("INTEGRATION_MIN_CONFIDENCE", "medium")  # 最低置信度要求
 
 # ---- 每小时监控 ----
-MARKET_OPEN_EST = 9   # 美东时间开盘 (手工设，避开夏令时混乱)
-MARKET_CLOSE_EST = 16
 MONITOR_INTERVAL_MINUTES = int(os.getenv("INTEGRATION_MONITOR_INTERVAL", "60"))
 ENTRY_PRICE_TOLERANCE_PCT = float(os.getenv("INTEGRATION_ENTRY_TOLERANCE", "2.0"))  # 入场价容忍度（上下2%内视为可入场）
 DEFAULT_TRADE_AMOUNT = int(os.getenv("INTEGRATION_DEFAULT_TRADE_AMOUNT", "1000"))  # 每笔交易默认金额（美元）
