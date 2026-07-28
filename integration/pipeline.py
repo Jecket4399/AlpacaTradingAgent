@@ -333,11 +333,20 @@ class IntegrationPipeline:
             return False
 
     def _is_market_hours(self) -> bool:
-        now = datetime.utcnow()
-        if now.weekday() >= 5:
-            return False
-        hour_est = (now.hour - 4) % 24
-        return 9 <= hour_est <= 16
+        """检查美股是否在交易时段（9:30-16:00 美东时间，自动区分 EDT/EST，含假期）"""
+        try:
+            from webui.utils.market_hours import is_market_open
+            is_open, _reason = is_market_open()
+            return is_open
+        except ImportError:
+            # 兜底：GitHub Actions 环境也能用的简单判断
+            import pytz
+            eastern = pytz.timezone("US/Eastern")
+            now = datetime.now(pytz.utc).astimezone(eastern)
+            if now.weekday() >= 5:
+                return False
+            minutes = now.hour * 60 + now.minute
+            return 9 * 60 + 30 <= minutes < 16 * 60
 
     def _get_atr(self, ticker: str, period: int = 14) -> Optional[float]:
         """获取 ATR(平均真实波幅) 用于计算动态止盈止损"""
