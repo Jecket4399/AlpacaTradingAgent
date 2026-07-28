@@ -61,6 +61,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY || '' }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY || '' }}
+          INTEGRATION_DEFAULT_TRADE_AMOUNT: '1000'
         run: |
           echo "🔍 每小时仓位监控 ($(date -u +'%Y-%m-%d %H:%M UTC'))"
           echo ""
