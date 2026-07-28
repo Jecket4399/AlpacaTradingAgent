@@ -19,7 +19,7 @@ import pandas as pd
 
 from .config import (
     MAX_RECOMMENDATIONS, ENTRY_PRICE_TOLERANCE_PCT, MAX_DAILY_TRADES,
-    RECOMMENDATION_TTL_DAYS, MONITOR_INTERVAL_MINUTES,
+    RECOMMENDATION_TTL_DAYS, MONITOR_INTERVAL_MINUTES, DEFAULT_TRADE_AMOUNT,
 )
 from .models import (
     Recommendation, HourlyCheck, RecommendationStatus,
@@ -295,7 +295,7 @@ class IntegrationPipeline:
             from .config import ATR_TAKE_PROFIT_MULTIPLIER
 
             alpaca = AlpacaUtils()
-            amount = self.config.get("default_trade_amount", 1000)
+            amount = self.config.get("default_trade_amount", DEFAULT_TRADE_AMOUNT)
 
             # 如果 AI 没给止盈价，用 ATR×2.0 兜底
             rc = trade_intent.risk_controls
@@ -387,7 +387,7 @@ class IntegrationPipeline:
             )
 
             alpaca = AlpacaUtils()
-            amount = self.config.get("default_trade_amount", 1000)
+            amount = self.config.get("default_trade_amount", DEFAULT_TRADE_AMOUNT)
             conf = rec.ai_confidence or "medium"
 
             intent = TradeIntent(
