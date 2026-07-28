@@ -368,11 +368,15 @@ class IntegrationPipeline:
     def _execute_full_intent(self, rec: Recommendation, trade_intent) -> bool:
         """执行完整的 TradeIntent（由 Risk Judge 产出的下单指令）
 
-        AI 决定止盈价，若无数值则用安全网止盈（+25%）防止极端暴涨错过窗口。
+        DeepSeek thinking mode 不支持结构化输出，trade_intent 可能是 dict。
         """
         if not trade_intent:
             logger.info(f"  {rec.ticker}: 无 TradeIntent，跳过执行")
             return False
+
+        # 兼容 dict（DeepSeek free-text 降级）和对象两种格式
+        if isinstance(trade_intent, dict):
+            trade_intent = _dict_to_trade_intent(trade_intent)
 
         try:
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
@@ -381,7 +385,7 @@ class IntegrationPipeline:
             alpaca = AlpacaUtils()
             amount = self.config.get("default_trade_amount", 1000)
 
-            # 如果 AI 没给止盈价，用 ATR×2.0 计算（行业标准）
+            # 如果 AI 没给止盈价，用 ATR×2.0 兜底
             rc = trade_intent.risk_controls
             if not rc.take_profit_price:
                 current_price = self._get_current_price(rec.ticker)
@@ -561,6 +565,54 @@ class IntegrationPipeline:
             if price:
                 self._execute_entry(buy_rec, price)
         self.store.log_rotation(event)
+
+
+def _dict_to_trade_intent(d: dict):
+    """将 DeepSeek free-text 降级产出的 dict 转为 TradeIntent 兼容对象"""
+    from tradingagents.agents.schemas import (
+        TradeIntent, ExecutableAction, OrderIntent, RiskControls, ExecutionConstraints,
+    )
+    rc = d.get("risk_controls") or {}
+    if isinstance(rc, dict):
+        rc = RiskControls(
+            mode=rc.get("mode", "execution_allowed"),
+            stop_loss_price=_safe_float(rc.get("stop_loss_price")),
+            take_profit_price=_safe_float(rc.get("take_profit_price")),
+        )
+    oi = d.get("order_intent") or {}
+    if isinstance(oi, dict):
+        oi = OrderIntent(
+            order_type=oi.get("order_type", "market"),
+            order_class=oi.get("order_class", "simple"),
+            side=oi.get("side", "buy"),
+            sizing_basis=oi.get("sizing_basis", "configured_notional"),
+            notional_usd=_safe_float(oi.get("notional_usd", 1000)),
+        )
+    ec = d.get("execution_constraints") or {}
+    if isinstance(ec, dict):
+        ec = ExecutionConstraints(
+            allow_shorts=ec.get("allow_shorts", False),
+            asset_class=ec.get("asset_class", "equity"),
+            requires_open_market=ec.get("requires_open_market", True),
+        )
+    action = d.get("action", "HOLD")
+    try:
+        action = ExecutableAction(action)
+    except ValueError:
+        action = ExecutableAction.HOLD
+    return TradeIntent(
+        symbol=d.get("symbol", ""),
+        trading_mode=d.get("trading_mode", "investment"),
+        action=action,
+        current_position=d.get("current_position", "NEUTRAL"),
+        target_position=d.get("target_position", "LONG"),
+        position_transition=d.get("position_transition", "OPEN_LONG"),
+        confidence=d.get("confidence", "medium"),
+        order_intent=oi,
+        risk_controls=rc,
+        execution_constraints=ec,
+        rationale_summary=d.get("rationale_summary", ""),
+    )
 
 
 def _safe_float(val) -> Optional[float]:

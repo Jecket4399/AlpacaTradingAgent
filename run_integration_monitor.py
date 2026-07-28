@@ -82,8 +82,9 @@ def main():
             return
         try:
             stats = pipeline.hourly_monitor()
-            logger.info(f"检查完成: 下单={stats['orders_placed']}, "
-                        f"换仓={stats['rotations']}, 检查={stats['checks_performed']}")
+            logger.info(f"检查完成: 分析={stats.get('analyzed', 0)}, "
+                        f"BUY={stats.get('buy_signals', 0)}, SELL={stats.get('sell_signals', 0)}, "
+                        f"入场={stats.get('entries', 0)}, 出场={stats.get('exits', 0)}")
         except Exception as e:
             logger.error(f"监控出错: {e}", exc_info=True)
 
