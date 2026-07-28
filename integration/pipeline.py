@@ -339,30 +339,6 @@ class IntegrationPipeline:
         hour_est = (now.hour - 4) % 24
         return 9 <= hour_est <= 16
 
-    def _check_entry_timing(self, rec: Recommendation, positions: List):
-        """检查入场时机"""
-        if any(p.ticker == rec.ticker for p in positions):
-            return
-        if self.overseer and not self.overseer.can_open_new_position(positions):
-            logger.info(f"仓位已满，跳过 {rec.ticker}")
-            return
-
-        current_price = self._get_current_price(rec.ticker)
-        if not current_price:
-            return
-
-        entry_price = rec.ai_entry_price or current_price
-        deviation = abs(current_price - entry_price) / entry_price * 100
-        if deviation > ENTRY_PRICE_TOLERANCE_PCT:
-            self.store.log_hourly_check(HourlyCheck(
-                ticker=rec.ticker, current_price=current_price,
-                signal="price_deviation", market_regime="unknown",
-                notes=f"价格偏离 {deviation:.1f}%",
-            ))
-            return
-
-        self._execute_entry(rec, current_price)
-
     def _get_atr(self, ticker: str, period: int = 14) -> Optional[float]:
         """获取 ATR(平均真实波幅) 用于计算动态止盈止损"""
         try:
@@ -446,17 +422,6 @@ class IntegrationPipeline:
             logger.info(f"✅ 入场: {rec.ticker} @ ${current_price:.2f}")
         except Exception as e:
             logger.error(f"入场 {rec.ticker} 失败: {e}")
-
-    def _evaluate_exit(self, rec: Recommendation, positions: List) -> tuple:
-        ticker = rec.ticker
-        pos = next((p for p in positions if p.ticker == ticker), None)
-        if not pos:
-            return False, ""
-        if pos.is_losing:
-            return True, f"止损 ({pos.unrealized_pnl_pct:.1f}%)"
-        if pos.is_underperforming:
-            return True, f"表现不佳 ({pos.unrealized_pnl_pct:.1f}%, 持有{pos.days_held}天)"
-        return False, ""
 
     def _execute_exit(self, rec: Recommendation, reason: str):
         try:
