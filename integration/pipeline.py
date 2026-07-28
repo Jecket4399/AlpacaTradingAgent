@@ -374,11 +374,11 @@ class IntegrationPipeline:
             logger.info(f"  {rec.ticker}: 无 TradeIntent，跳过执行")
             return False
 
-        # 兼容 dict（DeepSeek free-text 降级）和对象两种格式
-        if isinstance(trade_intent, dict):
-            trade_intent = _dict_to_trade_intent(trade_intent)
-
         try:
+            # 兼容 dict（DeepSeek free-text 降级）和对象两种格式
+            if isinstance(trade_intent, dict):
+                trade_intent = _dict_to_trade_intent(trade_intent)
+
             from tradingagents.dataflows.alpaca_utils import AlpacaUtils
             from .config import ATR_TAKE_PROFIT_MULTIPLIER
 
