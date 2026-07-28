@@ -472,11 +472,11 @@ def _dict_to_trade_intent(d: dict):
             asset_class=ec.get("asset_class", "equity"),
             requires_open_market=ec.get("requires_open_market", True),
         )
-    action = d.get("action", "HOLD")
+    action = d.get("action", "BUY")
     try:
         action = ExecutableAction(action)
     except ValueError:
-        action = ExecutableAction.HOLD
+        action = ExecutableAction.BUY
     return TradeIntent(
         symbol=d.get("symbol", ""),
         trading_mode=d.get("trading_mode", "investment"),
