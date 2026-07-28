@@ -1,19 +1,6 @@
 name: 每小时仓位监控
 
 on:
-  schedule:
-    # 整点和半点触发，从开盘后30分钟到收盘前30分钟
-    # Python _is_market_hours() 精确拦截非交易时段，冬/夏令时自动适配
-    - cron: '0 14 * * 1-5'    # EST 09:00 / EDT 10:00
-    - cron: '0 15 * * 1-5'    # EST 10:00 / EDT 11:00
-    - cron: '0 16 * * 1-5'    # EST 11:00 / EDT 12:00
-    - cron: '0 17 * * 1-5'    # EST 12:00 / EDT 13:00
-    - cron: '0 18 * * 1-5'    # EST 13:00 / EDT 14:00
-    - cron: '0 19 * * 1-5'    # EST 14:00 / EDT 15:00
-    - cron: '30 19 * * 1-5'   # EST 14:30 / EDT 15:30
-    - cron: '0 20 * * 1-5'    # EST 15:00 / EDT 16:00 (夏令时收盘)
-    - cron: '30 20 * * 1-5'   # EST 15:30 / EDT 16:30 (冬令时收盘前30分)
-
   workflow_dispatch:
 
 jobs:
