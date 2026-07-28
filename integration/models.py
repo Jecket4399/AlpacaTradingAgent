@@ -99,8 +99,8 @@ class PositionSnapshot:
 
     @property
     def is_underperforming(self) -> bool:
-        """持有超过5天且浮盈低于2%，视为表现不佳"""
-        return self.days_held > 5 and self.unrealized_pnl_pct < 2.0
+        from .config import UNDERPERFORM_DAYS, UNDERPERFORM_THRESHOLD_PCT
+        return self.days_held > UNDERPERFORM_DAYS and self.unrealized_pnl_pct < UNDERPERFORM_THRESHOLD_PCT
 
     @property
     def is_losing(self) -> bool:
