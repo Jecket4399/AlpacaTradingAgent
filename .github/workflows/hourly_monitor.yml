@@ -2,16 +2,18 @@ name: 每小时仓位监控
 
 on:
   schedule:
-    # 美股 EDT 9:30-16:00 = UTC 13:30-20:00
-    # 提前半小时开始, 提前半小时结束
-    - cron: '0 13 * * 1-5'    # UTC 13:00 = 09:00 EDT (开盘前30分钟)
-    - cron: '0 14 * * 1-5'    # 10:00 EDT
-    - cron: '0 15 * * 1-5'    # 11:00 EDT
-    - cron: '0 16 * * 1-5'    # 12:00 EDT
-    - cron: '0 17 * * 1-5'    # 13:00 EDT
-    - cron: '0 18 * * 1-5'    # 14:00 EDT
-    - cron: '0 19 * * 1-5'    # 15:00 EDT
-    - cron: '30 19 * * 1-5'   # UTC 19:30 = 15:30 EDT (收盘前30分钟)
+    # 覆盖冬令时 EST 收盘 (UTC 21:00) 和夏令时 EDT 收盘 (UTC 20:00)
+    # Python _is_market_hours() 会精确拦截非交易时段，无需担心夏令时盘后误交易
+    - cron: '0 13 * * 1-5'    # EST 08:00 / EDT 09:00 (盘前数据预热)
+    - cron: '0 14 * * 1-5'    # EST 09:00 / EDT 10:00
+    - cron: '0 15 * * 1-5'    # EST 10:00 / EDT 11:00
+    - cron: '0 16 * * 1-5'    # EST 11:00 / EDT 12:00
+    - cron: '0 17 * * 1-5'    # EST 12:00 / EDT 13:00
+    - cron: '0 18 * * 1-5'    # EST 13:00 / EDT 14:00
+    - cron: '0 19 * * 1-5'    # EST 14:00 / EDT 15:00
+    - cron: '30 19 * * 1-5'   # EST 14:30 / EDT 15:30
+    - cron: '0 20 * * 1-5'    # EST 15:00 / EDT 16:00 (夏令时收盘)
+    - cron: '30 20 * * 1-5'   # EST 15:30 / EDT 16:30 (冬令时收盘前30分)
 
   workflow_dispatch:
 
@@ -75,7 +77,7 @@ jobs:
             exit 0
           fi
 
-          if [ $HOUR_UTC -lt 13 ] || [ $HOUR_UTC -gt 19 ]; then
+          if [ $HOUR_UTC -lt 13 ] || [ $HOUR_UTC -gt 20 ]; then
             echo "⏭️  非交易时段 (UTC $HOUR_UTC:00)，跳过"
             exit 0
           fi
