@@ -19,6 +19,12 @@ from ..utils.structured import bind_structured, invoke_structured_object_or_free
 from tradingagents.dataflows.alpaca_utils import AlpacaUtils
 from tradingagents.prompts import render_prompt
 
+import json
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
 # Import prompt capture utility
 try:
     from webui.utils.prompt_capture import capture_agent_prompt
@@ -168,6 +174,38 @@ def create_risk_manager(llm, memory, config=None):
         )
 
         if structured_decision is None:
+            # DeepSeek free-text 降级：尝试从响应中提取 JSON 止损止盈价格
+            stop_loss_text = None
+            take_profit_text = None
+            try:
+                # 匹配 ```json {...} ``` 代码块 或 裸 JSON 对象
+                json_match = re.search(
+                    r'```(?:json)?\s*(\{[^`]+\})\s*```',
+                    response_content,
+                )
+                json_str = json_match.group(1) if json_match else None
+                if not json_str:
+                    json_match = re.search(
+                        r'(\{\s*"stop_loss"[^}]+\})',
+                        response_content,
+                    )
+                    json_str = json_match.group(1) if json_match else None
+                if json_str:
+                    prices = json.loads(json_str)
+                    sl = prices.get("stop_loss")
+                    tp = prices.get("take_profit")
+                    if sl is not None and isinstance(sl, (int, float)):
+                        stop_loss_text = f"${sl:.2f}"
+                    if tp is not None and isinstance(tp, (int, float)):
+                        take_profit_text = f"${tp:.2f}"
+                    if stop_loss_text or take_profit_text:
+                        logger.info(
+                            "从 free-text 响应中提取到价格: stop_loss=%s, take_profit=%s",
+                            stop_loss_text, take_profit_text,
+                        )
+            except Exception:
+                pass
+
             structured_decision = RiskDecision(
                 action=ExecutableAction(extracted_recommendation),
                 confidence="unknown",
@@ -177,8 +215,11 @@ def create_risk_manager(llm, memory, config=None):
                 ),
                 required_controls=(
                     "Review the Markdown risk report manually. Broker stop-loss and "
-                    "take-profit controls are not inferred from free text."
+                    + ("take-profit controls were extracted from free-text JSON." if (stop_loss_text or take_profit_text)
+                       else "take-profit controls are not inferred from free text.")
                 ),
+                stop_loss=stop_loss_text,
+                take_profit=take_profit_text,
             )
 
         trade_intent = build_trade_intent_from_risk_decision(

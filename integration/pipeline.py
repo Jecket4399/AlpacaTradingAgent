@@ -297,16 +297,18 @@ class IntegrationPipeline:
             alpaca = AlpacaUtils()
             amount = self.config.get("default_trade_amount", DEFAULT_TRADE_AMOUNT)
 
-            # 如果 AI 没给止盈价，用 ATR×2.0 兜底
+            # 如果 AI 没给止损/止盈价，用 ATR 兜底
             rc = trade_intent.risk_controls
-            if not rc.take_profit_price:
-                current_price = self._get_current_price(rec.ticker)
-                if current_price and current_price > 0:
-                    atr = self._get_atr(rec.ticker)
-                    if atr and atr > 0:
-                        tp = round(current_price + atr * ATR_TAKE_PROFIT_MULTIPLIER, 2)
-                        rc.take_profit_price = tp
-                        logger.info(f"  {rec.ticker}: ATR止盈 @ ${tp} (ATR×{ATR_TAKE_PROFIT_MULTIPLIER})")
+            current_price = self._get_current_price(rec.ticker)
+            atr = self._get_atr(rec.ticker) if current_price else None
+            if not rc.stop_loss_price and current_price and atr:
+                sl = round(current_price - atr * ATR_TAKE_PROFIT_MULTIPLIER, 2)
+                rc.stop_loss_price = sl
+                logger.info(f"  {rec.ticker}: ATR止损 @ ${sl} (ATR×{ATR_TAKE_PROFIT_MULTIPLIER})")
+            if not rc.take_profit_price and current_price and atr:
+                tp = round(current_price + atr * ATR_TAKE_PROFIT_MULTIPLIER, 2)
+                rc.take_profit_price = tp
+                logger.info(f"  {rec.ticker}: ATR止盈 @ ${tp} (ATR×{ATR_TAKE_PROFIT_MULTIPLIER})")
 
             result = alpaca.execute_trade_intent(
                 symbol=rec.ticker,
