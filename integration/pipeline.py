@@ -482,6 +482,8 @@ def _dict_to_trade_intent(d: dict):
             allow_shorts=ec.get("allow_shorts", False),
             asset_class=ec.get("asset_class", "equity"),
             requires_open_market=ec.get("requires_open_market", True),
+            broker_protective_orders_enabled=ec.get("broker_protective_orders_enabled", False),
+            warnings=ec.get("warnings", []),
         )
     action = d.get("action", "BUY")
     try:
