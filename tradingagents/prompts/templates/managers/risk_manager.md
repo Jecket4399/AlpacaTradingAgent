@@ -26,7 +26,7 @@ Output format (concise):
 - End exactly with: {final_format}
 - Write the analysis in {output_language}; keep the final transaction proposal line in English with the exact action token.
 
-Keep response under 260 words.
+Keep response under 260 words (the JSON price block below does not count toward this limit).
 
 **CRITICAL — Protective Price Output:**
 After your final transaction proposal line, append a JSON block with your recommended stop-loss and take-profit prices (absolute dollar values, not percentages). This JSON will be parsed automatically to place broker protective orders. If you believe protective orders are unnecessary for this trade, set both to null.
