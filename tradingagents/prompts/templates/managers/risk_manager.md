@@ -32,5 +32,5 @@ Keep response under 260 words (the JSON price block below does not count toward 
 After your final transaction proposal line, append a JSON block with your recommended stop-loss and take-profit prices (absolute dollar values, not percentages). This JSON will be parsed automatically to place broker protective orders. If you believe protective orders are unnecessary for this trade, set both to null.
 
 ```json
-{"stop_loss": <number|null>, "take_profit": <number|null>}
+{{"stop_loss": <number|null>, "take_profit": <number|null>}}
 ```
